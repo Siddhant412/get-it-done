@@ -16,6 +16,16 @@
 		0257C24D2F1D945F005B9C83 /* InsightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C23A2F1D945F005B9C83 /* InsightsView.swift */; };
 		0257C24E2F1D945F005B9C83 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C23F2F1D945F005B9C83 /* ProfileView.swift */; };
 		0257C24F2F1D945F005B9C83 /* AppTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C2222F1D945F005B9C83 /* AppTabView.swift */; };
+		0257C26D2F2038EB005B9C83 /* Goal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C2602F2038EB005B9C83 /* Goal.swift */; };
+		0257C26E2F2038EB005B9C83 /* Habit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C2612F2038EB005B9C83 /* Habit.swift */; };
+		0257C26F2F2038EB005B9C83 /* TaskItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C2632F2038EB005B9C83 /* TaskItem.swift */; };
+		0257C2702F2038EB005B9C83 /* UserStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C2642F2038EB005B9C83 /* UserStats.swift */; };
+		0257C2712F2038EB005B9C83 /* Milestone.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C2622F2038EB005B9C83 /* Milestone.swift */; };
+		0257C2722F2038EB005B9C83 /* DailyPriority.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C25F2F2038EB005B9C83 /* DailyPriority.swift */; };
+		0257C2782F203916005B9C83 /* Color+Hex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C2772F203916005B9C83 /* Color+Hex.swift */; };
+		0257C27A2F204DBD005B9C83 /* TasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C2792F204DBD005B9C83 /* TasksView.swift */; };
+		0257C27C2F241B21005B9C83 /* DailyLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C27B2F241B21005B9C83 /* DailyLog.swift */; };
+		0257C27E2F241B61005B9C83 /* Date+StartOfDay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C27D2F241B61005B9C83 /* Date+StartOfDay.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -62,6 +72,20 @@
 		0257C2412F1D945F005B9C83 /* .gitkeep */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitkeep; sourceTree = "<group>"; };
 		0257C2432F1D945F005B9C83 /* .gitkeep */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitkeep; sourceTree = "<group>"; };
 		0257C2442F1D945F005B9C83 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
+		0257C25E2F2038EB005B9C83 /* .gitkeep */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitkeep; sourceTree = "<group>"; };
+		0257C25F2F2038EB005B9C83 /* DailyPriority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyPriority.swift; sourceTree = "<group>"; };
+		0257C2602F2038EB005B9C83 /* Goal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Goal.swift; sourceTree = "<group>"; };
+		0257C2612F2038EB005B9C83 /* Habit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Habit.swift; sourceTree = "<group>"; };
+		0257C2622F2038EB005B9C83 /* Milestone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Milestone.swift; sourceTree = "<group>"; };
+		0257C2632F2038EB005B9C83 /* TaskItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskItem.swift; sourceTree = "<group>"; };
+		0257C2642F2038EB005B9C83 /* UserStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserStats.swift; sourceTree = "<group>"; };
+		0257C2662F2038EB005B9C83 /* .gitkeep */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitkeep; sourceTree = "<group>"; };
+		0257C2682F2038EB005B9C83 /* .gitkeep */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitkeep; sourceTree = "<group>"; };
+		0257C26A2F2038EB005B9C83 /* .gitkeep */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitkeep; sourceTree = "<group>"; };
+		0257C2772F203916005B9C83 /* Color+Hex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "Color+Hex.swift"; path = "../Core/Extensions/Color+Hex.swift"; sourceTree = SOURCE_ROOT; };
+		0257C2792F204DBD005B9C83 /* TasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TasksView.swift; path = ../Features/Tasks/TasksView.swift; sourceTree = SOURCE_ROOT; };
+		0257C27B2F241B21005B9C83 /* DailyLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DailyLog.swift; path = ../Data/Models/DailyLog.swift; sourceTree = SOURCE_ROOT; };
+		0257C27D2F241B61005B9C83 /* Date+StartOfDay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = "Date+StartOfDay.swift"; path = "../Core/Extensions/Date+StartOfDay.swift"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -110,6 +134,7 @@
 		0257C1ED2F1D5C28005B9C83 = {
 			isa = PBXGroup;
 			children = (
+				0257C26C2F2038EB005B9C83 /* Data */,
 				0257C2242F1D945F005B9C83 /* App */,
 				0257C22E2F1D945F005B9C83 /* Core */,
 				0257C2462F1D945F005B9C83 /* Features */,
@@ -163,6 +188,8 @@
 			isa = PBXGroup;
 			children = (
 				0257C22A2F1D945F005B9C83 /* .gitkeep */,
+				0257C2772F203916005B9C83 /* Color+Hex.swift */,
+				0257C27D2F241B61005B9C83 /* Date+StartOfDay.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -251,6 +278,7 @@
 			isa = PBXGroup;
 			children = (
 				0257C2412F1D945F005B9C83 /* .gitkeep */,
+				0257C2792F204DBD005B9C83 /* TasksView.swift */,
 			);
 			path = Tasks;
 			sourceTree = "<group>";
@@ -279,6 +307,57 @@
 			);
 			name = Features;
 			path = ../Features;
+			sourceTree = SOURCE_ROOT;
+		};
+		0257C2652F2038EB005B9C83 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				0257C25E2F2038EB005B9C83 /* .gitkeep */,
+				0257C25F2F2038EB005B9C83 /* DailyPriority.swift */,
+				0257C2602F2038EB005B9C83 /* Goal.swift */,
+				0257C2612F2038EB005B9C83 /* Habit.swift */,
+				0257C27B2F241B21005B9C83 /* DailyLog.swift */,
+				0257C2622F2038EB005B9C83 /* Milestone.swift */,
+				0257C2632F2038EB005B9C83 /* TaskItem.swift */,
+				0257C2642F2038EB005B9C83 /* UserStats.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		0257C2672F2038EB005B9C83 /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				0257C2662F2038EB005B9C83 /* .gitkeep */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
+		0257C2692F2038EB005B9C83 /* Repositories */ = {
+			isa = PBXGroup;
+			children = (
+				0257C2682F2038EB005B9C83 /* .gitkeep */,
+			);
+			path = Repositories;
+			sourceTree = "<group>";
+		};
+		0257C26B2F2038EB005B9C83 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				0257C26A2F2038EB005B9C83 /* .gitkeep */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		0257C26C2F2038EB005B9C83 /* Data */ = {
+			isa = PBXGroup;
+			children = (
+				0257C2652F2038EB005B9C83 /* Models */,
+				0257C2672F2038EB005B9C83 /* Persistence */,
+				0257C2692F2038EB005B9C83 /* Repositories */,
+				0257C26B2F2038EB005B9C83 /* Services */,
+			);
+			name = Data;
+			path = ../Data;
 			sourceTree = SOURCE_ROOT;
 		};
 /* End PBXGroup section */
@@ -425,10 +504,20 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0257C27E2F241B61005B9C83 /* Date+StartOfDay.swift in Sources */,
 				0257C2472F1D945F005B9C83 /* CalendarView.swift in Sources */,
 				0257C2482F1D945F005B9C83 /* AppRootView.swift in Sources */,
 				0257C2492F1D945F005B9C83 /* GoalsView.swift in Sources */,
 				0257C24A2F1D945F005B9C83 /* GetItDoneApp.swift in Sources */,
+				0257C26D2F2038EB005B9C83 /* Goal.swift in Sources */,
+				0257C26E2F2038EB005B9C83 /* Habit.swift in Sources */,
+				0257C26F2F2038EB005B9C83 /* TaskItem.swift in Sources */,
+				0257C27A2F204DBD005B9C83 /* TasksView.swift in Sources */,
+				0257C2702F2038EB005B9C83 /* UserStats.swift in Sources */,
+				0257C2712F2038EB005B9C83 /* Milestone.swift in Sources */,
+				0257C27C2F241B21005B9C83 /* DailyLog.swift in Sources */,
+				0257C2782F203916005B9C83 /* Color+Hex.swift in Sources */,
+				0257C2722F2038EB005B9C83 /* DailyPriority.swift in Sources */,
 				0257C24B2F1D945F005B9C83 /* FeaturePlaceholderView.swift in Sources */,
 				0257C24C2F1D945F005B9C83 /* TodayView.swift in Sources */,
 				0257C24D2F1D945F005B9C83 /* InsightsView.swift in Sources */,
@@ -603,6 +692,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -635,6 +725,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -660,7 +751,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 3Y2P7JY7WM;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = me.GetItDoneTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -682,7 +773,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 3Y2P7JY7WM;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = me.GetItDoneTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -703,6 +794,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 3Y2P7JY7WM;
 				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = me.GetItDoneUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -723,6 +815,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 3Y2P7JY7WM;
 				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = me.GetItDoneUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";

@@ -4,6 +4,7 @@ struct AppTabView: View {
     enum Tab: Hashable {
         case today
         case goals
+        case tasks
         case calendar
         case insights
         case profile
@@ -28,6 +29,14 @@ struct AppTabView: View {
                 Label("Goals", systemImage: "flag")
             }
             .tag(Tab.goals)
+
+            NavigationStack {
+                TasksView()
+            }
+            .tabItem {
+                Label("Tasks", systemImage: "checklist")
+            }
+            .tag(Tab.tasks)
 
             NavigationStack {
                 CalendarView()

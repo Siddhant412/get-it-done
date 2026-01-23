@@ -1,27 +1,21 @@
 import SwiftUI
-import UIKit
+import SwiftData
 import Combine
+import UIKit
 
 struct TodayView: View {
     private let maxPriorities = 3
 
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \DailyPriority.sortOrder) private var priorities: [DailyPriority]
+    @Query(sort: \Habit.sortOrder) private var habits: [Habit]
+    @Query(sort: \UserStats.updatedAt, order: .reverse) private var stats: [UserStats]
+    @Query(sort: \Goal.sortOrder) private var goals: [Goal]
+
     @State private var animatedProgress: Double = 0.0
     @State private var activeSheet: ActiveSheet?
-    @State private var streakProtected = false
-    @State private var streakDays: Int = 14
-    @State private var focusMinutes: Int = 38
-
-    @State private var topPriorities: [PriorityItem] = [
-        PriorityItem(title: "Ship onboarding flow", detail: "Build | 40 min", isSmallWin: false, isCompleted: false),
-        PriorityItem(title: "LeetCode: 1 medium problem", detail: "DSA | 25 min", isSmallWin: true, isCompleted: false),
-        PriorityItem(title: "Read 20 min", detail: "Focus | 20 min", isSmallWin: true, isCompleted: false)
-    ]
-    @State private var habits: [HabitItem] = [
-        HabitItem(title: "Gym", streak: 6, progress: 0.8),
-        HabitItem(title: "Journal", streak: 12, progress: 0.6),
-        HabitItem(title: "LeetCode", streak: 9, progress: 0.5),
-        HabitItem(title: "Hydration", streak: 15, progress: 0.7)
-    ]
+    @State private var selectedPriority: DailyPriority?
+    @State private var selectedHabit: Habit?
 
     var body: some View {
         ZStack {
@@ -33,8 +27,8 @@ struct TodayView: View {
 
                     HeroCard(
                         progress: animatedProgress,
-                        streakDays: streakDays,
-                        focusMinutes: focusMinutes,
+                        streakDays: currentStreakDays,
+                        focusMinutes: currentFocusMinutes,
                         onProgressTap: { activeSheet = .progress }
                     )
 
@@ -43,8 +37,8 @@ struct TodayView: View {
                         actionTitle: "Edit",
                         action: { activeSheet = .priorityManager }
                     )
-                    ForEach(priorityIndices, id: \.self) { index in
-                        PriorityRow(item: $topPriorities[index])
+                    ForEach(priorityItemsForProgress) { item in
+                        PriorityRow(item: item, onDetail: { selectedPriority = item })
                     }
 
                     SectionHeader(
@@ -52,11 +46,11 @@ struct TodayView: View {
                         actionTitle: "All",
                         action: { activeSheet = .habitManager }
                     )
-                    HabitRow(items: $habits)
+                    HabitRow(items: habits, onDetail: { selectedHabit = $0 })
 
                     MomentumCard(
                         progress: momentumProgress,
-                        isProtected: streakProtected,
+                        isProtected: isStreakProtected,
                         onToggleProtection: toggleStreakProtection
                     )
 
@@ -71,6 +65,9 @@ struct TodayView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .task {
+            seedIfNeeded()
+        }
         .onAppear {
             animatedProgress = 0
             withAnimation(.easeOut(duration: 0.9)) {
@@ -81,6 +78,7 @@ struct TodayView: View {
             withAnimation(.easeInOut(duration: 0.5)) {
                 animatedProgress = newValue
             }
+            upsertTodayLog()
         }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
@@ -92,25 +90,28 @@ struct TodayView: View {
                 )
             case .quickAdd:
                 QuickAddSheet(
+                    goals: goals,
                     onAddPriority: addPriority,
                     onAddHabit: addHabit
                 )
             case .focus:
                 FocusTimerView(onComplete: addFocusMinutes)
             case .priorityManager:
-                PriorityManagerView(items: $topPriorities)
+                PriorityManagerView()
             case .habitManager:
-                HabitManagerView(items: $habits)
+                HabitManagerView()
             }
+        }
+        .sheet(item: $selectedPriority) { item in
+            PriorityDetailView(item: item, goals: goals, onDelete: deletePriority)
+        }
+        .sheet(item: $selectedHabit) { item in
+            HabitDetailView(item: item, onDelete: deleteHabit)
         }
     }
 
-    private var priorityIndices: [Int] {
-        Array(topPriorities.indices.prefix(maxPriorities))
-    }
-
-    private var priorityItemsForProgress: [PriorityItem] {
-        priorityIndices.map { topPriorities[$0] }
+    private var priorityItemsForProgress: [DailyPriority] {
+        Array(priorities.prefix(maxPriorities))
     }
 
     private var priorityCompletionCount: Int {
@@ -118,9 +119,7 @@ struct TodayView: View {
     }
 
     private var todayProgress: Double {
-        let priorityCount = priorityItemsForProgress.count
-        let habitCount = habits.count
-        let totalSlots = Double(priorityCount + habitCount)
+        let totalSlots = Double(priorityItemsForProgress.count + habits.count)
         guard totalSlots > 0 else { return 0 }
 
         let priorityScore = Double(priorityCompletionCount)
@@ -130,46 +129,180 @@ struct TodayView: View {
     }
 
     private var momentumProgress: Double {
-        let boost = streakProtected ? 0.08 : 0.0
+        let boost = isStreakProtected ? 0.08 : 0.0
         return min(1, max(0, todayProgress + boost))
     }
 
-    private func addPriority(title: String, detail: String, isSmallWin: Bool) {
+    private var currentStats: UserStats? {
+        stats.first
+    }
+
+    private var currentStreakDays: Int {
+        currentStats?.streakDays ?? 0
+    }
+
+    private var currentFocusMinutes: Int {
+        currentStats?.focusMinutes ?? 0
+    }
+
+    private var isStreakProtected: Bool {
+        currentStats?.streakProtected ?? false
+    }
+
+    private func seedIfNeeded() {
+        if priorities.isEmpty {
+            let seeds = [
+                ("Ship onboarding flow", "Build | 40 min", false),
+                ("LeetCode: 1 medium problem", "DSA | 25 min", true),
+                ("Read 20 min", "Focus | 20 min", true)
+            ]
+            for (index, seed) in seeds.enumerated() {
+                let item = DailyPriority(
+                    title: seed.0,
+                    detail: seed.1,
+                    isSmallWin: seed.2,
+                    sortOrder: index
+                )
+                modelContext.insert(item)
+            }
+        }
+
+        if habits.isEmpty {
+            let seeds = [
+                ("Gym", 6, 0.8),
+                ("Journal", 12, 0.6),
+                ("LeetCode", 9, 0.5),
+                ("Hydration", 15, 0.7)
+            ]
+            for (index, seed) in seeds.enumerated() {
+                let item = Habit(
+                    title: seed.0,
+                    streak: seed.1,
+                    progress: seed.2,
+                    sortOrder: index
+                )
+                modelContext.insert(item)
+            }
+        }
+
+        if stats.isEmpty {
+            let userStats = UserStats(streakDays: 14, focusMinutes: 38, streakProtected: false)
+            modelContext.insert(userStats)
+        }
+
+        upsertTodayLog()
+    }
+
+    private func addPriority(title: String, detail: String, isSmallWin: Bool, goal: Goal?) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return }
         let trimmedDetail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        topPriorities.insert(
-            PriorityItem(
-                title: trimmedTitle,
-                detail: trimmedDetail.isEmpty ? "Focus | 20 min" : trimmedDetail,
-                isSmallWin: isSmallWin,
-                isCompleted: false
-            ),
-            at: 0
+        let nextOrder = (priorities.map(\.sortOrder).max() ?? -1) + 1
+        let item = DailyPriority(
+            title: trimmedTitle,
+            detail: trimmedDetail.isEmpty ? "Focus | 20 min" : trimmedDetail,
+            isSmallWin: isSmallWin,
+            sortOrder: nextOrder,
+            goal: goal
         )
+        modelContext.insert(item)
         Haptics.success()
+        upsertTodayLog()
     }
 
     private func addHabit(title: String, streak: Int) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else { return }
 
-        habits.insert(
-            HabitItem(title: trimmedTitle, streak: max(0, min(streak, 365)), progress: 0),
-            at: 0
+        let nextOrder = (habits.map(\.sortOrder).max() ?? -1) + 1
+        let item = Habit(
+            title: trimmedTitle,
+            streak: max(0, min(streak, 365)),
+            progress: 0,
+            sortOrder: nextOrder
         )
+        modelContext.insert(item)
         Haptics.success()
+        upsertTodayLog()
     }
 
     private func addFocusMinutes(_ minutes: Int) {
-        focusMinutes += minutes
+        updateStats { stats in
+            stats.focusMinutes += minutes
+        }
         Haptics.success()
+        upsertTodayLog()
     }
 
     private func toggleStreakProtection() {
-        streakProtected.toggle()
+        updateStats { stats in
+            stats.streakProtected.toggle()
+        }
         Haptics.tap()
+    }
+
+    private func updateStats(_ update: (UserStats) -> Void) {
+        if let stats = currentStats {
+            update(stats)
+            stats.updatedAt = Date()
+        } else {
+            let stats = UserStats()
+            update(stats)
+            modelContext.insert(stats)
+        }
+    }
+
+    private func deletePriority(_ item: DailyPriority) {
+        modelContext.delete(item)
+        normalizePriorityOrder()
+        upsertTodayLog()
+    }
+
+    private func deleteHabit(_ item: Habit) {
+        modelContext.delete(item)
+        normalizeHabitOrder()
+        upsertTodayLog()
+    }
+
+    private func normalizePriorityOrder() {
+        let ordered = priorities.sorted { $0.sortOrder < $1.sortOrder }
+        for (index, item) in ordered.enumerated() {
+            item.sortOrder = index
+        }
+    }
+
+    private func normalizeHabitOrder() {
+        let ordered = habits.sorted { $0.sortOrder < $1.sortOrder }
+        for (index, item) in ordered.enumerated() {
+            item.sortOrder = index
+        }
+    }
+
+    private func upsertTodayLog() {
+        let startOfDay = Date().startOfDay
+        guard let endOfDay = Calendar.current.date(byAdding: .day, value: 1, to: startOfDay) else {
+            return
+        }
+
+        let predicate = #Predicate<DailyLog> { log in
+            log.date >= startOfDay && log.date < endOfDay
+        }
+        let descriptor = FetchDescriptor(predicate: predicate)
+        let existing = (try? modelContext.fetch(descriptor))?.first
+
+        let log = existing ?? DailyLog(date: startOfDay)
+        log.intensity = todayProgress
+        log.completedPriorities = priorityCompletionCount
+        log.totalPriorities = priorityItemsForProgress.count
+        log.completedHabits = habits.filter { $0.progress >= 1 }.count
+        log.totalHabits = habits.count
+        log.focusMinutes = currentFocusMinutes
+        log.updatedAt = Date()
+
+        if existing == nil {
+            modelContext.insert(log)
+        }
     }
 
     private var dateText: String {
@@ -346,11 +479,12 @@ private struct SectionHeader: View {
 }
 
 private struct PriorityRow: View {
-    @Binding var item: PriorityItem
+    @Bindable var item: DailyPriority
+    let onDetail: () -> Void
 
     var body: some View {
-        Button(action: toggle) {
-            HStack(spacing: 12) {
+        HStack(spacing: 12) {
+            Button(action: toggle) {
                 ZStack {
                     Circle()
                         .strokeBorder(TodayTheme.accent, lineWidth: 2)
@@ -369,35 +503,46 @@ private struct PriorityRow: View {
                             .frame(width: 8, height: 8)
                     }
                 }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.title)
-                        .font(.custom("Avenir Next", size: 16))
-                        .fontWeight(.semibold)
-                        .foregroundStyle(item.isCompleted ? TodayTheme.inkSoft : TodayTheme.ink)
-                        .strikethrough(item.isCompleted, color: TodayTheme.inkSoft)
-                    Text(item.detail)
-                        .font(.custom("Avenir Next", size: 13))
-                        .foregroundStyle(TodayTheme.inkSoft)
-                }
-
-                Spacer()
-
-                Text(item.isSmallWin ? "Tiny win" : "Core")
-                    .font(.custom("Avenir Next", size: 12))
-                    .fontWeight(.semibold)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(item.isSmallWin ? TodayTheme.badgeSoft : TodayTheme.badgeStrong)
-                    .foregroundStyle(TodayTheme.ink)
-                    .clipShape(Capsule())
             }
-            .padding(14)
-            .background(TodayTheme.cardSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .shadow(color: TodayTheme.shadow, radius: 8, x: 0, y: 5)
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title)
+                    .font(.custom("Avenir Next", size: 16))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(item.isCompleted ? TodayTheme.inkSoft : TodayTheme.ink)
+                    .strikethrough(item.isCompleted, color: TodayTheme.inkSoft)
+                Text(item.detail)
+                    .font(.custom("Avenir Next", size: 13))
+                    .foregroundStyle(TodayTheme.inkSoft)
+            }
+
+            Spacer()
+
+            Text(item.isSmallWin ? "Tiny win" : "Core")
+                .font(.custom("Avenir Next", size: 12))
+                .fontWeight(.semibold)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(item.isSmallWin ? TodayTheme.badgeSoft : TodayTheme.badgeStrong)
+                .foregroundStyle(TodayTheme.ink)
+                .clipShape(Capsule())
+
+            if let goal = item.goal {
+                GoalTag(goal: goal)
+            }
+
+            Button(action: onDetail) {
+                Image(systemName: "info.circle")
+                    .foregroundStyle(TodayTheme.inkSoft)
+                    .font(.system(size: 16))
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+        .padding(14)
+        .background(TodayTheme.cardSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: TodayTheme.shadow, radius: 8, x: 0, y: 5)
     }
 
     private func toggle() {
@@ -408,14 +553,60 @@ private struct PriorityRow: View {
     }
 }
 
+private struct GoalTag: View {
+    let goal: Goal
+
+    var body: some View {
+        let tint = Color(hex: goal.colorHex) ?? TodayTheme.accent
+
+        Text(goal.title)
+            .font(.custom("Avenir Next", size: 11))
+            .fontWeight(.semibold)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(tint.opacity(0.18))
+            .foregroundStyle(tint)
+            .clipShape(Capsule())
+    }
+}
+
+private struct GoalSelectionMenu: View {
+    let goals: [Goal]
+    let selectedGoal: Goal?
+    let onSelect: (Goal?) -> Void
+
+    var body: some View {
+        Menu {
+            Button("No goal") {
+                onSelect(nil)
+            }
+            ForEach(goals) { goal in
+                Button(goal.title) {
+                    onSelect(goal)
+                }
+            }
+        } label: {
+            HStack {
+                Text("Goal")
+                Spacer()
+                Text(selectedGoal?.title ?? "None")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
 private struct HabitRow: View {
-    @Binding var items: [HabitItem]
+    let items: [Habit]
+    let onDetail: (Habit) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 14) {
-                ForEach($items) { $item in
-                    HabitCard(item: $item)
+                ForEach(items) { item in
+                    HabitCard(item: item, onDetail: { onDetail(item) })
                 }
             }
             .padding(.vertical, 4)
@@ -424,14 +615,23 @@ private struct HabitRow: View {
 }
 
 private struct HabitCard: View {
-    @Binding var item: HabitItem
+    @Bindable var item: Habit
+    let onDetail: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(item.title)
-                .font(.custom("Avenir Next", size: 16))
-                .fontWeight(.semibold)
-                .foregroundStyle(TodayTheme.ink)
+            HStack {
+                Text(item.title)
+                    .font(.custom("Avenir Next", size: 16))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(TodayTheme.ink)
+                Spacer()
+                Button(action: onDetail) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(TodayTheme.inkSoft)
+                }
+                .buttonStyle(.plain)
+            }
 
             Text("\(item.streak)-day streak")
                 .font(.custom("Avenir Next", size: 12))
@@ -465,7 +665,7 @@ private struct HabitCard: View {
             }
         }
         .padding(14)
-        .frame(width: 160)
+        .frame(width: 170)
         .background(TodayTheme.cardSurface)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .shadow(color: TodayTheme.shadow, radius: 8, x: 0, y: 5)
@@ -614,8 +814,8 @@ private struct QuickActionsCard: View {
 private struct ProgressDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let progress: Double
-    let priorities: [PriorityItem]
-    let habits: [HabitItem]
+    let priorities: [DailyPriority]
+    let habits: [Habit]
 
     var body: some View {
         NavigationStack {
@@ -724,24 +924,18 @@ private struct ProgressItemRow: View {
 
 private struct PriorityManagerView: View {
     @Environment(\.dismiss) private var dismiss
-    @Binding var items: [PriorityItem]
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \DailyPriority.sortOrder) private var items: [DailyPriority]
+    @Query(sort: \Goal.sortOrder) private var goals: [Goal]
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach($items) { $item in
-                    VStack(alignment: .leading, spacing: 8) {
-                        TextField("Title", text: $item.title)
-                            .font(.custom("Avenir Next", size: 16))
-                        TextField("Detail", text: $item.detail)
-                            .font(.custom("Avenir Next", size: 12))
-                            .foregroundStyle(.secondary)
-                        Toggle("Tiny win", isOn: $item.isSmallWin)
-                    }
-                    .padding(.vertical, 6)
+                ForEach(items) { item in
+                    PriorityManagerRow(item: item, goals: goals)
                 }
-                .onDelete { items.remove(atOffsets: $0) }
-                .onMove { items.move(fromOffsets: $0, toOffset: $1) }
+                .onDelete(perform: delete)
+                .onMove(perform: move)
             }
             .navigationTitle("Edit priorities")
             .toolbar {
@@ -756,26 +950,68 @@ private struct PriorityManagerView: View {
             }
         }
     }
+
+    private func delete(at offsets: IndexSet) {
+        for index in offsets {
+            modelContext.delete(items[index])
+        }
+        normalizeOrder()
+    }
+
+    private func move(from source: IndexSet, to destination: Int) {
+        var revised = items
+        revised.move(fromOffsets: source, toOffset: destination)
+        for (index, item) in revised.enumerated() {
+            item.sortOrder = index
+        }
+    }
+
+    private func normalizeOrder() {
+        let ordered = items.sorted { $0.sortOrder < $1.sortOrder }
+        for (index, item) in ordered.enumerated() {
+            item.sortOrder = index
+        }
+    }
+}
+
+private struct PriorityManagerRow: View {
+    @Bindable var item: DailyPriority
+    let goals: [Goal]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Title", text: $item.title)
+                .font(.custom("Avenir Next", size: 16))
+            TextField("Detail", text: $item.detail)
+                .font(.custom("Avenir Next", size: 12))
+                .foregroundStyle(.secondary)
+            Toggle("Tiny win", isOn: $item.isSmallWin)
+
+            if !goals.isEmpty {
+                GoalSelectionMenu(
+                    goals: goals,
+                    selectedGoal: item.goal,
+                    onSelect: { item.goal = $0 }
+                )
+            }
+        }
+        .padding(.vertical, 6)
+    }
 }
 
 private struct HabitManagerView: View {
     @Environment(\.dismiss) private var dismiss
-    @Binding var items: [HabitItem]
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \Habit.sortOrder) private var items: [Habit]
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach($items) { $item in
-                    VStack(alignment: .leading, spacing: 8) {
-                        TextField("Habit name", text: $item.title)
-                            .font(.custom("Avenir Next", size: 16))
-                        Stepper("Streak: \(item.streak) days", value: $item.streak, in: 0...365)
-                            .font(.custom("Avenir Next", size: 12))
-                    }
-                    .padding(.vertical, 6)
+                ForEach(items) { item in
+                    HabitManagerRow(item: item)
                 }
-                .onDelete { items.remove(atOffsets: $0) }
-                .onMove { items.move(fromOffsets: $0, toOffset: $1) }
+                .onDelete(perform: delete)
+                .onMove(perform: move)
             }
             .navigationTitle("Habits")
             .toolbar {
@@ -790,6 +1026,42 @@ private struct HabitManagerView: View {
             }
         }
     }
+
+    private func delete(at offsets: IndexSet) {
+        for index in offsets {
+            modelContext.delete(items[index])
+        }
+        normalizeOrder()
+    }
+
+    private func move(from source: IndexSet, to destination: Int) {
+        var revised = items
+        revised.move(fromOffsets: source, toOffset: destination)
+        for (index, item) in revised.enumerated() {
+            item.sortOrder = index
+        }
+    }
+
+    private func normalizeOrder() {
+        let ordered = items.sorted { $0.sortOrder < $1.sortOrder }
+        for (index, item) in ordered.enumerated() {
+            item.sortOrder = index
+        }
+    }
+}
+
+private struct HabitManagerRow: View {
+    @Bindable var item: Habit
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Habit name", text: $item.title)
+                .font(.custom("Avenir Next", size: 16))
+            Stepper("Streak: \(item.streak) days", value: $item.streak, in: 0...365)
+                .font(.custom("Avenir Next", size: 12))
+        }
+        .padding(.vertical, 6)
+    }
 }
 
 private struct QuickAddSheet: View {
@@ -799,8 +1071,10 @@ private struct QuickAddSheet: View {
     @State private var detail = ""
     @State private var isSmallWin = true
     @State private var streak = 1
+    @State private var selectedGoal: Goal?
 
-    let onAddPriority: (String, String, Bool) -> Void
+    let goals: [Goal]
+    let onAddPriority: (String, String, Bool, Goal?) -> Void
     let onAddHabit: (String, Int) -> Void
 
     var body: some View {
@@ -821,6 +1095,16 @@ private struct QuickAddSheet: View {
                     if type == .priority {
                         TextField("Detail (optional)", text: $detail)
                         Toggle("Tiny win", isOn: $isSmallWin)
+                        if !goals.isEmpty {
+                            GoalSelectionMenu(
+                                goals: goals,
+                                selectedGoal: selectedGoal,
+                                onSelect: { selectedGoal = $0 }
+                            )
+                        } else {
+                            Text("Create a goal to attach priorities.")
+                                .foregroundStyle(.secondary)
+                        }
                     } else {
                         Stepper("Streak start: \(streak) days", value: $streak, in: 0...365)
                     }
@@ -850,7 +1134,7 @@ private struct QuickAddSheet: View {
     private func handleAdd() {
         switch type {
         case .priority:
-            onAddPriority(title, detail, isSmallWin)
+            onAddPriority(title, detail, isSmallWin, selectedGoal)
         case .habit:
             onAddHabit(title, streak)
         }
@@ -989,19 +1273,96 @@ private struct FocusRing: View {
     }
 }
 
-private struct PriorityItem: Identifiable {
-    let id = UUID()
-    var title: String
-    var detail: String
-    var isSmallWin: Bool
-    var isCompleted: Bool
+private struct PriorityDetailView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var item: DailyPriority
+    let goals: [Goal]
+    let onDelete: (DailyPriority) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Details") {
+                    TextField("Title", text: $item.title)
+                    TextField("Detail", text: $item.detail)
+                    Toggle("Tiny win", isOn: $item.isSmallWin)
+                    Toggle("Completed", isOn: $item.isCompleted)
+
+                    if !goals.isEmpty {
+                        GoalSelectionMenu(
+                            goals: goals,
+                            selectedGoal: item.goal,
+                            onSelect: { item.goal = $0 }
+                        )
+                    } else {
+                        Text("Create a goal to attach priorities.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section {
+                    Button("Delete priority", role: .destructive) {
+                        onDelete(item)
+                        dismiss()
+                    }
+                }
+            }
+            .navigationTitle("Priority")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
 }
 
-private struct HabitItem: Identifiable {
-    let id = UUID()
-    var title: String
-    var streak: Int
-    var progress: Double
+private struct HabitDetailView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var item: Habit
+    let onDelete: (Habit) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Overview") {
+                    HStack {
+                        Text("Progress")
+                        Spacer()
+                        Text("\(Int(item.progress * 100))%")
+                            .fontWeight(.semibold)
+                    }
+                    ProgressBar(progress: item.progress)
+                }
+
+                Section("Details") {
+                    TextField("Habit name", text: $item.title)
+                    Stepper("Streak: \(item.streak) days", value: $item.streak, in: 0...365)
+                    Toggle("Completed today", isOn: Binding(
+                        get: { item.progress >= 1 },
+                        set: { item.progress = $0 ? 1 : 0 }
+                    ))
+                }
+
+                Section {
+                    Button("Delete habit", role: .destructive) {
+                        onDelete(item)
+                        dismiss()
+                    }
+                }
+            }
+            .navigationTitle("Habit")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
 }
 
 private enum AddType: String, CaseIterable, Identifiable {

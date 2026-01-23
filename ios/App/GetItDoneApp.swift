@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 @main
 struct GetItDoneApp: App {
@@ -6,5 +7,14 @@ struct GetItDoneApp: App {
         WindowGroup {
             AppRootView()
         }
+        .modelContainer(for: [
+            DailyPriority.self,
+            Habit.self,
+            UserStats.self,
+            DailyLog.self,
+            Goal.self,
+            Milestone.self,
+            TaskItem.self
+        ])
     }
 }
