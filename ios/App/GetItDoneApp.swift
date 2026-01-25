@@ -10,6 +10,7 @@ struct GetItDoneApp: App {
         .modelContainer(for: [
             DailyPriority.self,
             Habit.self,
+            HabitCheckIn.self,
             UserStats.self,
             DailyLog.self,
             Goal.self,

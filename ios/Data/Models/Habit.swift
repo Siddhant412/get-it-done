@@ -10,13 +10,17 @@ final class Habit: Identifiable {
     var sortOrder: Int
     var createdAt: Date
 
+    @Relationship(deleteRule: .cascade, inverse: \HabitCheckIn.habit)
+    var checkIns: [HabitCheckIn]
+
     init(
         id: UUID = UUID(),
         title: String,
         streak: Int = 0,
         progress: Double = 0,
         sortOrder: Int,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        checkIns: [HabitCheckIn] = []
     ) {
         self.id = id
         self.title = title
@@ -24,5 +28,6 @@ final class Habit: Identifiable {
         self.progress = progress
         self.sortOrder = sortOrder
         self.createdAt = createdAt
+        self.checkIns = checkIns
     }
 }

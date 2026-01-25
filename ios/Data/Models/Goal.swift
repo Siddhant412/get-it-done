@@ -59,12 +59,25 @@ final class Goal: Identifiable {
 
 extension Goal {
     var completionRatio: Double {
-        guard !milestones.isEmpty else { return 0 }
-        let completed = milestones.filter { $0.isCompleted }.count
-        return Double(completed) / Double(milestones.count)
+        let milestoneCount = milestones.count
+        let taskCount = tasks.count
+        let total = milestoneCount + taskCount
+        guard total > 0 else { return 0 }
+
+        let completedMilestones = milestones.filter { $0.isCompleted }.count
+        let completedTasks = tasks.filter { $0.isCompleted }.count
+        return Double(completedMilestones + completedTasks) / Double(total)
     }
 
-    var completedMilestoneSummary: String {
-        "\(milestones.filter { $0.isCompleted }.count)/\(milestones.count) milestones"
+    var progressSummary: String {
+        let milestoneSummary = milestones.isEmpty
+            ? nil
+            : "\(milestones.filter { $0.isCompleted }.count)/\(milestones.count) milestones"
+        let taskSummary = tasks.isEmpty
+            ? nil
+            : "\(tasks.filter { $0.isCompleted }.count)/\(tasks.count) tasks"
+
+        let parts = [milestoneSummary, taskSummary].compactMap { $0 }
+        return parts.isEmpty ? "No milestones or tasks yet" : parts.joined(separator: " • ")
     }
 }

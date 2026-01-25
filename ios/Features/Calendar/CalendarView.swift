@@ -1,5 +1,7 @@
 import SwiftUI
 import SwiftData
+import PhotosUI
+import UIKit
 
 struct CalendarView: View {
     @Environment(\.modelContext) private var modelContext
@@ -38,9 +40,6 @@ struct CalendarView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .task {
-            seedLogsIfNeeded()
-        }
         .sheet(item: $selectedDay) { day in
             DayDetailView(day: day)
         }
@@ -129,35 +128,7 @@ struct CalendarView: View {
         return calendar
     }
 
-    private func seedLogsIfNeeded() {
-        guard logs.isEmpty else { return }
-
-        let calendar = heatmapCalendar
-        let today = Date().startOfDay
-        let totalDays = weeksToShow * 7
-        let startDate = calendar.date(byAdding: .day, value: -(totalDays - 1), to: today) ?? today
-
-        for offset in 0..<totalDays {
-            guard let date = calendar.date(byAdding: .day, value: offset, to: startDate) else { continue }
-            let chance = Double.random(in: 0...1)
-            let intensity = chance < 0.3 ? 0 : Double.random(in: 0.2...1)
-            let completedPriorities = Int((intensity * 3).rounded())
-            let completedHabits = Int((intensity * 4).rounded())
-            let focusMinutes = Int((intensity * 60).rounded())
-
-            let log = DailyLog(
-                date: date,
-                intensity: intensity,
-                completedPriorities: completedPriorities,
-                totalPriorities: 3,
-                completedHabits: completedHabits,
-                totalHabits: 4,
-                focusMinutes: focusMinutes,
-                updatedAt: date
-            )
-            modelContext.insert(log)
-        }
-    }
+    
 }
 
 private struct CalendarBackground: View {
@@ -373,37 +344,263 @@ private struct StreakHistoryCard: View {
 }
 
 private struct DayDetailView: View {
+    @Environment(\.modelContext) private var modelContext
     let day: HeatmapDay
+
+    @State private var log: DailyLog?
+    @State private var habitCheckIns: [HabitCheckIn] = []
+    @State private var completedTasks: [TaskItem] = []
+    @State private var selectedPhoto: PhotosPickerItem?
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(CalendarDateFormatter.full.string(from: day.date))
-                    .font(.custom("Avenir Next", size: 20))
-                    .fontWeight(.semibold)
-                    .foregroundStyle(CalendarTheme.ink)
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(CalendarDateFormatter.full.string(from: day.date))
+                        .font(.custom("Avenir Next", size: 20))
+                        .fontWeight(.semibold)
+                        .foregroundStyle(CalendarTheme.ink)
 
-                if let log = day.log {
-                    DayDetailRow(title: "Intensity", value: "\(Int(log.intensity * 100))%")
-                    DayDetailRow(
-                        title: "Priorities",
-                        value: "\(log.completedPriorities)/\(log.totalPriorities)"
-                    )
-                    DayDetailRow(
-                        title: "Habits",
-                        value: "\(log.completedHabits)/\(log.totalHabits)"
-                    )
-                    DayDetailRow(title: "Focus", value: "\(log.focusMinutes) min")
-                } else {
-                    Text("No activity logged.")
-                        .font(.custom("Avenir Next", size: 14))
-                        .foregroundStyle(CalendarTheme.inkSoft)
+                    if let log {
+                        VStack(alignment: .leading, spacing: 12) {
+                            DayDetailRow(title: "Intensity", value: "\(Int(log.intensity * 100))%")
+                            Slider(value: Binding(
+                                get: { log.intensity },
+                                set: { newValue in
+                                    log.intensity = newValue
+                                    log.updatedAt = Date()
+                                }
+                            ), in: 0...1)
+
+                            Stepper("Priorities: \(log.completedPriorities)/\(log.totalPriorities)", value: Binding(
+                                get: { log.completedPriorities },
+                                set: { newValue in
+                                    log.completedPriorities = max(0, min(newValue, log.totalPriorities))
+                                    log.updatedAt = Date()
+                                }
+                            ), in: 0...max(0, log.totalPriorities))
+
+                            Stepper("Habits: \(log.completedHabits)/\(log.totalHabits)", value: Binding(
+                                get: { log.completedHabits },
+                                set: { newValue in
+                                    log.completedHabits = max(0, min(newValue, log.totalHabits))
+                                    log.updatedAt = Date()
+                                }
+                            ), in: 0...max(0, log.totalHabits))
+
+                            Stepper("Focus minutes: \(log.focusMinutes)", value: Binding(
+                                get: { log.focusMinutes },
+                                set: { newValue in
+                                    log.focusMinutes = max(0, newValue)
+                                    log.updatedAt = Date()
+                                }
+                            ), in: 0...300, step: 5)
+                        }
+                        .padding(12)
+                        .background(CalendarTheme.card)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .shadow(color: CalendarTheme.shadow, radius: 6, x: 0, y: 4)
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Notes")
+                                .font(.custom("Avenir Next", size: 16))
+                                .fontWeight(.semibold)
+                                .foregroundStyle(CalendarTheme.ink)
+
+                            TextEditor(text: Binding(
+                                get: { log.note },
+                                set: { newValue in
+                                    log.note = newValue
+                                    log.updatedAt = Date()
+                                }
+                            ))
+                            .frame(minHeight: 120)
+                            .padding(8)
+                            .background(CalendarTheme.pill)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .padding(12)
+                        .background(CalendarTheme.card)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .shadow(color: CalendarTheme.shadow, radius: 6, x: 0, y: 4)
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Proof photo")
+                                .font(.custom("Avenir Next", size: 16))
+                                .fontWeight(.semibold)
+                                .foregroundStyle(CalendarTheme.ink)
+
+                            if let data = log.photoData, let image = UIImage(data: data) {
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(height: 180)
+                                    .clipped()
+                                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            } else {
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(CalendarTheme.pill)
+                                    .frame(height: 140)
+                                    .overlay(
+                                        Text("Add a photo")
+                                            .font(.custom("Avenir Next", size: 13))
+                                            .foregroundStyle(CalendarTheme.inkSoft)
+                                    )
+                            }
+
+                            PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                                Text(log.photoData == nil ? "Add photo" : "Replace photo")
+                                    .font(.custom("Avenir Next", size: 13))
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(CalendarTheme.heatmapFill)
+                                    .clipShape(Capsule())
+                            }
+
+                            if log.photoData != nil {
+                                Button("Remove photo", role: .destructive) {
+                                    log.photoData = nil
+                                    log.updatedAt = Date()
+                                }
+                            }
+                        }
+                        .padding(12)
+                        .background(CalendarTheme.card)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .shadow(color: CalendarTheme.shadow, radius: 6, x: 0, y: 4)
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Habit check-ins")
+                                .font(.custom("Avenir Next", size: 16))
+                                .fontWeight(.semibold)
+                                .foregroundStyle(CalendarTheme.ink)
+
+                            if habitCheckIns.isEmpty {
+                                Text("No habit check-ins logged.")
+                                    .font(.custom("Avenir Next", size: 13))
+                                    .foregroundStyle(CalendarTheme.inkSoft)
+                            } else {
+                                ForEach(habitCheckIns) { checkIn in
+                                    HStack {
+                                        Text(checkIn.habit?.title ?? "Habit")
+                                            .font(.custom("Avenir Next", size: 14))
+                                            .foregroundStyle(CalendarTheme.ink)
+                                        Spacer()
+                                        Text(checkIn.progress >= 1 ? "Done" : "Tiny")
+                                            .font(.custom("Avenir Next", size: 12))
+                                            .foregroundStyle(CalendarTheme.inkSoft)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(12)
+                        .background(CalendarTheme.card)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .shadow(color: CalendarTheme.shadow, radius: 6, x: 0, y: 4)
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Tasks completed")
+                                .font(.custom("Avenir Next", size: 16))
+                                .fontWeight(.semibold)
+                                .foregroundStyle(CalendarTheme.ink)
+
+                            if completedTasks.isEmpty {
+                                Text("No tasks completed.")
+                                    .font(.custom("Avenir Next", size: 13))
+                                    .foregroundStyle(CalendarTheme.inkSoft)
+                            } else {
+                                ForEach(completedTasks) { task in
+                                    HStack {
+                                        Text(task.title)
+                                            .font(.custom("Avenir Next", size: 14))
+                                            .foregroundStyle(CalendarTheme.ink)
+                                        Spacer()
+                                        if let goal = task.goal {
+                                            Text(goal.title)
+                                                .font(.custom("Avenir Next", size: 11))
+                                                .foregroundStyle(CalendarTheme.inkSoft)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(12)
+                        .background(CalendarTheme.card)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .shadow(color: CalendarTheme.shadow, radius: 6, x: 0, y: 4)
+                    } else {
+                        Text("No activity logged.")
+                            .font(.custom("Avenir Next", size: 14))
+                            .foregroundStyle(CalendarTheme.inkSoft)
+                    }
                 }
-
-                Spacer()
+                .padding(20)
             }
-            .padding(20)
             .navigationTitle("Day details")
+            .task {
+                ensureLog()
+                loadBreakdowns()
+            }
+            .onChange(of: selectedPhoto) { _ in
+                loadPhoto()
+            }
+        }
+    }
+
+    private func ensureLog() {
+        let startOfDay = day.date.startOfDay
+        guard let endOfDay = Calendar.current.date(byAdding: .day, value: 1, to: startOfDay) else {
+            return
+        }
+        let predicate = #Predicate<DailyLog> { log in
+            log.date >= startOfDay && log.date < endOfDay
+        }
+        let descriptor = FetchDescriptor(predicate: predicate)
+
+        if let existing = try? modelContext.fetch(descriptor).first {
+            log = existing
+        } else {
+            let newLog = DailyLog(
+                date: startOfDay,
+                totalPriorities: 3,
+                totalHabits: 4
+            )
+            modelContext.insert(newLog)
+            log = newLog
+        }
+    }
+
+    private func loadBreakdowns() {
+        let startOfDay = day.date.startOfDay
+        guard let endOfDay = Calendar.current.date(byAdding: .day, value: 1, to: startOfDay) else {
+            return
+        }
+
+        let habitPredicate = #Predicate<HabitCheckIn> { checkIn in
+            checkIn.date >= startOfDay && checkIn.date < endOfDay
+        }
+        let habitDescriptor = FetchDescriptor(predicate: habitPredicate)
+        habitCheckIns = (try? modelContext.fetch(habitDescriptor)) ?? []
+
+        let taskDescriptor = FetchDescriptor<TaskItem>()
+        let allTasks = (try? modelContext.fetch(taskDescriptor)) ?? []
+        completedTasks = allTasks.filter { task in
+            guard let completedAt = task.completedAt else { return false }
+            return completedAt >= startOfDay && completedAt < endOfDay
+        }
+    }
+
+    private func loadPhoto() {
+        guard let selectedPhoto else { return }
+        Task {
+            if let data = try? await selectedPhoto.loadTransferable(type: Data.self) {
+                await MainActor.run {
+                    log?.photoData = data
+                    log?.updatedAt = Date()
+                }
+            }
         }
     }
 }
@@ -473,11 +670,11 @@ private enum CalendarTheme {
     static let backgroundTop = Color(red: 0.94, green: 0.96, blue: 0.99)
     static let backgroundBottom = Color(red: 0.98, green: 0.98, blue: 0.95)
     static let glow = Color(red: 0.74, green: 0.83, blue: 0.94, opacity: 0.5)
-    static let card = Color(red: 0.99, green: 0.98, blue: 0.97)
+    static let card = AppPalette.card
     static let pill = Color(red: 0.92, green: 0.94, blue: 0.98)
-    static let ink = Color(red: 0.15, green: 0.16, blue: 0.18)
-    static let inkSoft = Color(red: 0.38, green: 0.40, blue: 0.44)
-    static let shadow = Color(red: 0.15, green: 0.16, blue: 0.18, opacity: 0.08)
+    static let ink = AppPalette.ink
+    static let inkSoft = AppPalette.inkSoft
+    static let shadow = AppPalette.shadow
     static let heatmapBase = Color(red: 0.78, green: 0.84, blue: 0.92)
     static let heatmapFill = Color(red: 0.27, green: 0.57, blue: 0.72)
 

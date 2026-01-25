@@ -10,6 +10,7 @@ final class TaskItem: Identifiable {
     var dueDate: Date?
     var priority: Int
     var createdAt: Date
+    var completedAt: Date?
 
     var goal: Goal?
 
@@ -21,6 +22,7 @@ final class TaskItem: Identifiable {
         dueDate: Date? = nil,
         priority: Int = 0,
         createdAt: Date = Date(),
+        completedAt: Date? = nil,
         goal: Goal? = nil
     ) {
         self.id = id
@@ -30,6 +32,7 @@ final class TaskItem: Identifiable {
         self.dueDate = dueDate
         self.priority = priority
         self.createdAt = createdAt
+        self.completedAt = completedAt
         self.goal = goal
     }
 }

@@ -12,6 +12,8 @@ final class DailyLog: Identifiable {
     var totalHabits: Int
     var focusMinutes: Int
     var note: String
+    @Attribute(.externalStorage)
+    var photoData: Data?
     var createdAt: Date
     var updatedAt: Date
 
@@ -25,6 +27,7 @@ final class DailyLog: Identifiable {
         totalHabits: Int = 0,
         focusMinutes: Int = 0,
         note: String = "",
+        photoData: Data? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -37,6 +40,7 @@ final class DailyLog: Identifiable {
         self.totalHabits = totalHabits
         self.focusMinutes = focusMinutes
         self.note = note
+        self.photoData = photoData
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

@@ -9,6 +9,7 @@ final class Milestone: Identifiable {
     var dueDate: Date?
     var sortOrder: Int
     var createdAt: Date
+    var completedAt: Date?
 
     var goal: Goal?
 
@@ -19,6 +20,7 @@ final class Milestone: Identifiable {
         dueDate: Date? = nil,
         sortOrder: Int,
         createdAt: Date = Date(),
+        completedAt: Date? = nil,
         goal: Goal? = nil
     ) {
         self.id = id
@@ -27,6 +29,7 @@ final class Milestone: Identifiable {
         self.dueDate = dueDate
         self.sortOrder = sortOrder
         self.createdAt = createdAt
+        self.completedAt = completedAt
         self.goal = goal
     }
 }

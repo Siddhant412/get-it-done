@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-import UIKit
 
 struct TasksView: View {
     @Environment(\.modelContext) private var modelContext
@@ -51,9 +50,6 @@ struct TasksView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .task {
-            seedIfNeeded()
-        }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .add:
@@ -71,23 +67,6 @@ struct TasksView: View {
 
     private func tasksForGoal(_ goal: Goal) -> [TaskItem] {
         tasks.filter { $0.goal?.id == goal.id }
-    }
-
-    private func seedIfNeeded() {
-        guard tasks.isEmpty else { return }
-        let sampleTitles = [
-            "Define habit streak freeze rules",
-            "Draft streak reward visuals",
-            "Review heatmap intensity colors"
-        ]
-
-        for (index, title) in sampleTitles.enumerated() {
-            let task = TaskItem(title: title, priority: index, createdAt: Date())
-            if let firstGoal = goals.first, index == 0 {
-                task.goal = firstGoal
-            }
-            modelContext.insert(task)
-        }
     }
 
     private func addTask(_ draft: TaskDraft) {
@@ -273,8 +252,9 @@ private struct TaskCard: View {
     private func toggle() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             task.isCompleted.toggle()
+            task.completedAt = task.isCompleted ? Date() : nil
         }
-        TaskHaptics.tap()
+        AppHaptics.tap()
     }
 }
 
@@ -376,7 +356,13 @@ private struct TaskDetailView: View {
                 Section("Details") {
                     TextField("Task title", text: $task.title)
                     TextField("Detail", text: $task.detail)
-                    Toggle("Completed", isOn: $task.isCompleted)
+                    Toggle("Completed", isOn: Binding(
+                        get: { task.isCompleted },
+                        set: { newValue in
+                            task.isCompleted = newValue
+                            task.completedAt = newValue ? Date() : nil
+                        }
+                    ))
                     Stepper("Priority: \(task.priority)", value: $task.priority, in: 1...5)
                 }
 
@@ -478,23 +464,17 @@ private enum TaskDateFormatter {
     }()
 }
 
-private enum TaskHaptics {
-    static func tap() {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-    }
-}
-
 private enum TasksTheme {
     static let backgroundTop = Color(red: 0.92, green: 0.95, blue: 0.98)
     static let backgroundBottom = Color(red: 0.97, green: 0.98, blue: 0.95)
     static let glow = Color(red: 0.74, green: 0.86, blue: 0.94, opacity: 0.5)
-    static let card = Color(red: 0.99, green: 0.98, blue: 0.97)
+    static let card = AppPalette.card
     static let pill = Color(red: 0.92, green: 0.94, blue: 0.97)
-    static let ink = Color(red: 0.15, green: 0.16, blue: 0.18)
-    static let inkSoft = Color(red: 0.38, green: 0.40, blue: 0.44)
+    static let ink = AppPalette.ink
+    static let inkSoft = AppPalette.inkSoft
     static let primary = Color(red: 0.24, green: 0.46, blue: 0.64)
     static let accent = Color(red: 0.29, green: 0.60, blue: 0.68)
-    static let shadow = Color(red: 0.15, green: 0.16, blue: 0.18, opacity: 0.08)
+    static let shadow = AppPalette.shadow
 
     static func tint(for goal: Goal) -> Color {
         Color(hex: goal.colorHex) ?? accent

@@ -11,6 +11,10 @@ struct TodayView: View {
     @Query(sort: \Habit.sortOrder) private var habits: [Habit]
     @Query(sort: \UserStats.updatedAt, order: .reverse) private var stats: [UserStats]
     @Query(sort: \Goal.sortOrder) private var goals: [Goal]
+    @Query(sort: \DailyLog.date) private var logs: [DailyLog]
+    @Query(sort: \HabitCheckIn.date) private var habitCheckIns: [HabitCheckIn]
+    @Query(sort: \TaskItem.createdAt, order: .reverse) private var tasks: [TaskItem]
+    @Query(sort: \Milestone.createdAt, order: .reverse) private var milestones: [Milestone]
 
     @State private var animatedProgress: Double = 0.0
     @State private var activeSheet: ActiveSheet?
@@ -25,10 +29,18 @@ struct TodayView: View {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     HeaderRow(dateText: dateText)
 
+                    if shouldShowRecoveryBanner {
+                        RecoveryBanner(
+                            tokensRemaining: freezeTokensRemaining,
+                            onUseFreeze: activateStreakProtection
+                        )
+                    }
+
                     HeroCard(
                         progress: animatedProgress,
                         streakDays: currentStreakDays,
                         focusMinutes: currentFocusMinutes,
+                        xp: todayXP,
                         onProgressTap: { activeSheet = .progress }
                     )
 
@@ -46,17 +58,33 @@ struct TodayView: View {
                         actionTitle: "All",
                         action: { activeSheet = .habitManager }
                     )
-                    HabitRow(items: habits, onDetail: { selectedHabit = $0 })
+                    HabitRow(
+                        items: habits,
+                        onDetail: { selectedHabit = $0 },
+                        onProgressChange: recordHabitCheckIn
+                    )
+
+                    WeeklyQuestCard(quests: weeklyQuests)
 
                     MomentumCard(
                         progress: momentumProgress,
                         isProtected: isStreakProtected,
+                        tokensRemaining: freezeTokensRemaining,
                         onToggleProtection: toggleStreakProtection
                     )
 
                     QuickActionsCard(
                         onStartFocus: { activeSheet = .focus },
                         onQuickAdd: { activeSheet = .quickAdd }
+                    )
+
+                    RecapCard(
+                        completedPriorities: priorityCompletionCount,
+                        totalPriorities: priorityItemsForProgress.count,
+                        completedHabits: habits.filter { $0.progress >= 1 }.count,
+                        totalHabits: habits.count,
+                        focusMinutes: currentFocusMinutes,
+                        onView: { activeSheet = .recap }
                     )
                 }
                 .padding(.horizontal, 20)
@@ -65,14 +93,13 @@ struct TodayView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .task {
-            seedIfNeeded()
-        }
         .onAppear {
             animatedProgress = 0
             withAnimation(.easeOut(duration: 0.9)) {
                 animatedProgress = todayProgress
             }
+            upsertTodayLog()
+            refreshFreezeTokensIfNeeded()
         }
         .onChange(of: todayProgress) { newValue in
             withAnimation(.easeInOut(duration: 0.5)) {
@@ -100,13 +127,27 @@ struct TodayView: View {
                 PriorityManagerView()
             case .habitManager:
                 HabitManagerView()
+            case .recap:
+                RecapView(
+                    date: Date(),
+                    completedPriorities: priorityCompletionCount,
+                    totalPriorities: priorityItemsForProgress.count,
+                    completedHabits: habits.filter { $0.progress >= 1 }.count,
+                    totalHabits: habits.count,
+                    focusMinutes: currentFocusMinutes,
+                    progress: todayProgress
+                )
             }
         }
         .sheet(item: $selectedPriority) { item in
             PriorityDetailView(item: item, goals: goals, onDelete: deletePriority)
         }
         .sheet(item: $selectedHabit) { item in
-            HabitDetailView(item: item, onDelete: deleteHabit)
+            HabitDetailView(
+                item: item,
+                onDelete: deleteHabit,
+                onProgressChange: { recordHabitCheckIn(for: item) }
+            )
         }
     }
 
@@ -145,52 +186,120 @@ struct TodayView: View {
         currentStats?.focusMinutes ?? 0
     }
 
+    private var todayXP: Int {
+        let baseXP = XPCalculator.xpForCounts(
+            completedPriorities: priorityCompletionCount,
+            completedHabits: habits.filter { $0.progress >= 1 }.count,
+            focusMinutes: currentFocusMinutes
+        )
+        let day = Date().startOfDay
+        return baseXP
+            + XPCalculator.xpForTasks(tasks, on: day)
+            + XPCalculator.xpForMilestones(milestones, on: day)
+    }
+
+    private var weeklyCalendar: Calendar {
+        var calendar = Calendar.current
+        calendar.firstWeekday = 2
+        return calendar
+    }
+
+    private var weekStart: Date {
+        weeklyCalendar.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date().startOfDay
+    }
+
+    private var weekEnd: Date {
+        weeklyCalendar.date(byAdding: .day, value: 7, to: weekStart) ?? Date().startOfDay
+    }
+
+    private var weeklyLogs: [DailyLog] {
+        logs.filter { $0.date >= weekStart && $0.date < weekEnd }
+    }
+
+    private var weeklyActiveDays: Int {
+        weeklyLogs.filter { $0.intensity > 0.05 }.count
+    }
+
+    private var weeklyPrioritiesCompleted: Int {
+        weeklyLogs.reduce(0) { $0 + $1.completedPriorities }
+    }
+
+    private var weeklyFocusMinutes: Int {
+        weeklyLogs.reduce(0) { $0 + $1.focusMinutes }
+    }
+
+    private var weeklyTasksCompleted: Int {
+        tasks.reduce(0) { total, task in
+            guard let completedAt = task.completedAt,
+                  completedAt >= weekStart && completedAt < weekEnd else { return total }
+            return total + 1
+        }
+    }
+
+    private var weeklyHabitCheckIns: Int {
+        habitCheckIns.reduce(0) { total, checkIn in
+            guard checkIn.date >= weekStart,
+                  checkIn.date < weekEnd,
+                  checkIn.progress > 0.01 else { return total }
+            return total + 1
+        }
+    }
+
+    private var weeklyQuests: [WeeklyQuest] {
+        [
+            WeeklyQuest(
+                id: "show-up",
+                title: "Show up 5 days",
+                detail: "Active days this week",
+                progress: weeklyActiveDays,
+                target: 5,
+                rewardXP: 120
+            ),
+            WeeklyQuest(
+                id: "priorities",
+                title: "Finish 8 priorities",
+                detail: "Top 3 wins completed",
+                progress: weeklyPrioritiesCompleted,
+                target: 8,
+                rewardXP: 160
+            ),
+            WeeklyQuest(
+                id: "focus",
+                title: "Focus 150 minutes",
+                detail: "Deep work minutes",
+                progress: weeklyFocusMinutes,
+                target: 150,
+                rewardXP: 180
+            ),
+            WeeklyQuest(
+                id: "tasks",
+                title: "Complete 3 tasks",
+                detail: "Ship concrete work",
+                progress: weeklyTasksCompleted,
+                target: 3,
+                rewardXP: 150
+            ),
+            WeeklyQuest(
+                id: "habits",
+                title: "Log 6 habit check-ins",
+                detail: "Tiny wins count",
+                progress: weeklyHabitCheckIns,
+                target: 6,
+                rewardXP: 140
+            )
+        ]
+    }
+
     private var isStreakProtected: Bool {
         currentStats?.streakProtected ?? false
     }
 
-    private func seedIfNeeded() {
-        if priorities.isEmpty {
-            let seeds = [
-                ("Ship onboarding flow", "Build | 40 min", false),
-                ("LeetCode: 1 medium problem", "DSA | 25 min", true),
-                ("Read 20 min", "Focus | 20 min", true)
-            ]
-            for (index, seed) in seeds.enumerated() {
-                let item = DailyPriority(
-                    title: seed.0,
-                    detail: seed.1,
-                    isSmallWin: seed.2,
-                    sortOrder: index
-                )
-                modelContext.insert(item)
-            }
-        }
+    private var freezeTokensRemaining: Int {
+        currentStats?.streakFreezeTokens ?? 0
+    }
 
-        if habits.isEmpty {
-            let seeds = [
-                ("Gym", 6, 0.8),
-                ("Journal", 12, 0.6),
-                ("LeetCode", 9, 0.5),
-                ("Hydration", 15, 0.7)
-            ]
-            for (index, seed) in seeds.enumerated() {
-                let item = Habit(
-                    title: seed.0,
-                    streak: seed.1,
-                    progress: seed.2,
-                    sortOrder: index
-                )
-                modelContext.insert(item)
-            }
-        }
-
-        if stats.isEmpty {
-            let userStats = UserStats(streakDays: 14, focusMinutes: 38, streakProtected: false)
-            modelContext.insert(userStats)
-        }
-
-        upsertTodayLog()
+    private var shouldShowRecoveryBanner: Bool {
+        todayProgress < 0.3 && !isStreakProtected
     }
 
     private func addPriority(title: String, detail: String, isSmallWin: Bool, goal: Goal?) {
@@ -207,7 +316,7 @@ struct TodayView: View {
             goal: goal
         )
         modelContext.insert(item)
-        Haptics.success()
+        AppHaptics.success()
         upsertTodayLog()
     }
 
@@ -223,7 +332,7 @@ struct TodayView: View {
             sortOrder: nextOrder
         )
         modelContext.insert(item)
-        Haptics.success()
+        AppHaptics.success()
         upsertTodayLog()
     }
 
@@ -231,15 +340,29 @@ struct TodayView: View {
         updateStats { stats in
             stats.focusMinutes += minutes
         }
-        Haptics.success()
+        AppHaptics.success()
         upsertTodayLog()
     }
 
     private func toggleStreakProtection() {
         updateStats { stats in
-            stats.streakProtected.toggle()
+            if stats.streakProtected {
+                stats.streakProtected = false
+            } else if stats.streakFreezeTokens > 0 {
+                stats.streakFreezeTokens -= 1
+                stats.streakProtected = true
+            }
         }
-        Haptics.tap()
+        AppHaptics.tap()
+    }
+
+    private func activateStreakProtection() {
+        updateStats { stats in
+            guard !stats.streakProtected, stats.streakFreezeTokens > 0 else { return }
+            stats.streakFreezeTokens -= 1
+            stats.streakProtected = true
+        }
+        AppHaptics.tap()
     }
 
     private func updateStats(_ update: (UserStats) -> Void) {
@@ -253,6 +376,15 @@ struct TodayView: View {
         }
     }
 
+    private func refreshFreezeTokensIfNeeded() {
+        let currentMonth = Calendar.current.component(.month, from: Date())
+        updateStats { stats in
+            guard stats.lastFreezeResetMonth != currentMonth else { return }
+            stats.lastFreezeResetMonth = currentMonth
+            stats.streakFreezeTokens = stats.freezeTokenAllowance
+        }
+    }
+
     private func deletePriority(_ item: DailyPriority) {
         modelContext.delete(item)
         normalizePriorityOrder()
@@ -263,6 +395,32 @@ struct TodayView: View {
         modelContext.delete(item)
         normalizeHabitOrder()
         upsertTodayLog()
+    }
+
+    private func recordHabitCheckIn(for habit: Habit) {
+        let day = Date().startOfDay
+        guard let endOfDay = Calendar.current.date(byAdding: .day, value: 1, to: day) else {
+            return
+        }
+        let habitID = habit.id
+        let predicate = #Predicate<HabitCheckIn> { checkIn in
+            checkIn.date >= day && checkIn.date < endOfDay && checkIn.habit?.id == habitID
+        }
+        let descriptor = FetchDescriptor(predicate: predicate)
+        let existing = (try? modelContext.fetch(descriptor))?.first
+
+        if habit.progress <= 0.01 {
+            if let existing {
+                modelContext.delete(existing)
+            }
+            return
+        }
+
+        let checkIn = existing ?? HabitCheckIn(date: day, progress: habit.progress, habit: habit)
+        checkIn.progress = habit.progress
+        if existing == nil {
+            modelContext.insert(checkIn)
+        }
     }
 
     private func normalizePriorityOrder() {
@@ -303,6 +461,18 @@ struct TodayView: View {
         if existing == nil {
             modelContext.insert(log)
         }
+
+        updateWidgetSnapshot()
+    }
+
+    private func updateWidgetSnapshot() {
+        let snapshot = WidgetSnapshot(
+            date: Date(),
+            streakDays: currentStreakDays,
+            todayProgress: todayProgress,
+            topPriorities: priorityItemsForProgress.map { $0.title }
+        )
+        WidgetDataStore.save(snapshot)
     }
 
     private var dateText: String {
@@ -362,6 +532,7 @@ private struct HeroCard: View {
     let progress: Double
     let streakDays: Int
     let focusMinutes: Int
+    let xp: Int
     let onProgressTap: () -> Void
 
     var body: some View {
@@ -384,6 +555,7 @@ private struct HeroCard: View {
                 HStack(spacing: 12) {
                     StatPill(title: "Streak", value: "\(streakDays) days")
                     StatPill(title: "Focus", value: "\(focusMinutes) min")
+                    StatPill(title: "XP", value: "\(xp)")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -549,7 +721,7 @@ private struct PriorityRow: View {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             item.isCompleted.toggle()
         }
-        Haptics.tap()
+        AppHaptics.tap()
     }
 }
 
@@ -601,12 +773,17 @@ private struct GoalSelectionMenu: View {
 private struct HabitRow: View {
     let items: [Habit]
     let onDetail: (Habit) -> Void
+    let onProgressChange: (Habit) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 14) {
                 ForEach(items) { item in
-                    HabitCard(item: item, onDetail: { onDetail(item) })
+                    HabitCard(
+                        item: item,
+                        onDetail: { onDetail(item) },
+                        onProgressChange: { onProgressChange(item) }
+                    )
                 }
             }
             .padding(.vertical, 4)
@@ -617,6 +794,7 @@ private struct HabitRow: View {
 private struct HabitCard: View {
     @Bindable var item: Habit
     let onDetail: () -> Void
+    let onProgressChange: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -717,7 +895,8 @@ private struct HabitCard: View {
         withAnimation(.easeInOut(duration: 0.35)) {
             item.progress = min(max(value, 0), 1)
         }
-        Haptics.tap()
+        AppHaptics.tap()
+        onProgressChange()
     }
 }
 
@@ -742,6 +921,7 @@ private struct ProgressBar: View {
 private struct MomentumCard: View {
     let progress: Double
     let isProtected: Bool
+    let tokensRemaining: Int
     let onToggleProtection: () -> Void
 
     var body: some View {
@@ -766,14 +946,149 @@ private struct MomentumCard: View {
                     .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .disabled(!isProtected && tokensRemaining == 0)
             }
 
             Text("You are close to your best streak. One small task keeps the chain unbroken.")
                 .font(.custom("Avenir Next", size: 13))
                 .foregroundStyle(TodayTheme.inkSoft)
+            Text("\(tokensRemaining) freeze tokens left this month")
+                .font(.custom("Avenir Next", size: 11))
+                .foregroundStyle(TodayTheme.inkSoft)
             ProgressBar(progress: progress)
         }
         .padding(16)
+        .background(TodayTheme.cardSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: TodayTheme.shadow, radius: 8, x: 0, y: 5)
+    }
+}
+
+private struct WeeklyQuestCard: View {
+    let quests: [WeeklyQuest]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Weekly quests")
+                    .font(.custom("Avenir Next", size: 18))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(TodayTheme.ink)
+                Spacer()
+                Text("Resets Monday")
+                    .font(.custom("Avenir Next", size: 11))
+                    .foregroundStyle(TodayTheme.inkSoft)
+            }
+
+            ForEach(quests) { quest in
+                QuestRow(quest: quest)
+            }
+        }
+        .padding(16)
+        .background(TodayTheme.cardSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: TodayTheme.shadow, radius: 8, x: 0, y: 5)
+    }
+}
+
+private struct QuestRow: View {
+    let quest: WeeklyQuest
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(quest.title)
+                    .font(.custom("Avenir Next", size: 14))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(TodayTheme.ink)
+                Spacer()
+                QuestStatusPill(isComplete: quest.isComplete, rewardXP: quest.rewardXP)
+            }
+
+            Text(quest.detail)
+                .font(.custom("Avenir Next", size: 12))
+                .foregroundStyle(TodayTheme.inkSoft)
+
+            HStack(spacing: 8) {
+                QuestProgressBar(progress: quest.progressRatio)
+                Text("\(min(quest.progress, quest.target))/\(quest.target)")
+                    .font(.custom("Avenir Next", size: 11))
+                    .foregroundStyle(TodayTheme.inkSoft)
+            }
+        }
+        .padding(10)
+        .background(TodayTheme.pillBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+private struct QuestStatusPill: View {
+    let isComplete: Bool
+    let rewardXP: Int
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: isComplete ? "checkmark.circle.fill" : "bolt.fill")
+                .font(.system(size: 10, weight: .semibold))
+            Text(isComplete ? "Done" : "+\(rewardXP) XP")
+        }
+        .font(.custom("Avenir Next", size: 11))
+        .fontWeight(.semibold)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .foregroundStyle(isComplete ? .white : TodayTheme.ink)
+        .background(isComplete ? TodayTheme.accent : TodayTheme.badgeStrong)
+        .clipShape(Capsule())
+    }
+}
+
+private struct QuestProgressBar: View {
+    let progress: Double
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(TodayTheme.ringTrack)
+                Capsule()
+                    .fill(TodayTheme.progressFill)
+                    .frame(width: proxy.size.width * min(max(progress, 0), 1))
+            }
+        }
+        .frame(height: 6)
+        .animation(.easeInOut(duration: 0.3), value: progress)
+    }
+}
+
+private struct RecoveryBanner: View {
+    let tokensRemaining: Int
+    let onUseFreeze: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Keep the streak alive")
+                    .font(.custom("Avenir Next", size: 16))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(TodayTheme.ink)
+                Text("Do one tiny task or use a freeze token.")
+                    .font(.custom("Avenir Next", size: 12))
+                    .foregroundStyle(TodayTheme.inkSoft)
+            }
+            Spacer()
+            Button("Use freeze") {
+                onUseFreeze()
+            }
+            .font(.custom("Avenir Next", size: 12))
+            .fontWeight(.semibold)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(tokensRemaining > 0 ? TodayTheme.accent : TodayTheme.badgeStrong)
+            .clipShape(Capsule())
+            .disabled(tokensRemaining == 0)
+        }
+        .padding(14)
         .background(TodayTheme.cardSurface)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .shadow(color: TodayTheme.shadow, radius: 8, x: 0, y: 5)
@@ -808,6 +1123,67 @@ private struct QuickActionsCard: View {
         .background(TodayTheme.cardSurface)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .shadow(color: TodayTheme.shadow, radius: 8, x: 0, y: 5)
+    }
+}
+
+private struct RecapCard: View {
+    let completedPriorities: Int
+    let totalPriorities: Int
+    let completedHabits: Int
+    let totalHabits: Int
+    let focusMinutes: Int
+    let onView: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("End of day recap")
+                    .font(.custom("Avenir Next", size: 18))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(TodayTheme.ink)
+                Spacer()
+                Button("View", action: onView)
+                    .font(.custom("Avenir Next", size: 13))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(TodayTheme.primaryButton)
+                    .clipShape(Capsule())
+            }
+
+            HStack(spacing: 12) {
+                RecapPill(title: "Priorities", value: "\(completedPriorities)/\(totalPriorities)")
+                RecapPill(title: "Habits", value: "\(completedHabits)/\(totalHabits)")
+                RecapPill(title: "Focus", value: "\(focusMinutes)m")
+            }
+        }
+        .padding(16)
+        .background(TodayTheme.cardSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: TodayTheme.shadow, radius: 8, x: 0, y: 5)
+    }
+}
+
+private struct RecapPill: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title.uppercased())
+                .font(.custom("Avenir Next", size: 10))
+                .fontWeight(.semibold)
+                .foregroundStyle(TodayTheme.inkSoft)
+            Text(value)
+                .font(.custom("Avenir Next", size: 13))
+                .fontWeight(.semibold)
+                .foregroundStyle(TodayTheme.ink)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .background(TodayTheme.pillBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -875,6 +1251,128 @@ private struct ProgressDetailView: View {
                 }
             }
         }
+    }
+}
+
+private struct RecapView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+
+    let date: Date
+    let completedPriorities: Int
+    let totalPriorities: Int
+    let completedHabits: Int
+    let totalHabits: Int
+    let focusMinutes: Int
+    let progress: Double
+
+    @State private var log: DailyLog?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    ProgressRing(progress: progress, size: 120, lineWidth: 12)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 8)
+
+                    RecapSummaryRow(title: "Priorities", value: "\(completedPriorities)/\(totalPriorities)")
+                    RecapSummaryRow(title: "Habits", value: "\(completedHabits)/\(totalHabits)")
+                    RecapSummaryRow(title: "Focus", value: "\(focusMinutes) min")
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Reflection")
+                            .font(.custom("Avenir Next", size: 16))
+                            .fontWeight(.semibold)
+                            .foregroundStyle(TodayTheme.ink)
+
+                        TextEditor(text: Binding(
+                            get: { log?.note ?? "" },
+                            set: { newValue in
+                                log?.note = newValue
+                                log?.updatedAt = Date()
+                            }
+                        ))
+                        .frame(minHeight: 120)
+                        .padding(10)
+                        .background(TodayTheme.cardSurface)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(TodayTheme.cardBorder, lineWidth: 1)
+                        )
+                    }
+                }
+                .padding(20)
+            }
+            .navigationTitle("Daily recap")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+            .task {
+                ensureLog()
+            }
+        }
+    }
+
+    private func ensureLog() {
+        let startOfDay = date.startOfDay
+        guard let endOfDay = Calendar.current.date(byAdding: .day, value: 1, to: startOfDay) else {
+            return
+        }
+        let predicate = #Predicate<DailyLog> { log in
+            log.date >= startOfDay && log.date < endOfDay
+        }
+        let descriptor = FetchDescriptor(predicate: predicate)
+
+        if let existing = try? modelContext.fetch(descriptor).first {
+            log = existing
+            existing.intensity = progress
+            existing.completedPriorities = completedPriorities
+            existing.totalPriorities = totalPriorities
+            existing.completedHabits = completedHabits
+            existing.totalHabits = totalHabits
+            existing.focusMinutes = focusMinutes
+            existing.updatedAt = Date()
+        } else {
+            let newLog = DailyLog(
+                date: startOfDay,
+                intensity: progress,
+                completedPriorities: completedPriorities,
+                totalPriorities: totalPriorities,
+                completedHabits: completedHabits,
+                totalHabits: totalHabits,
+                focusMinutes: focusMinutes,
+                updatedAt: Date()
+            )
+            modelContext.insert(newLog)
+            log = newLog
+        }
+    }
+}
+
+private struct RecapSummaryRow: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.custom("Avenir Next", size: 14))
+                .foregroundStyle(TodayTheme.inkSoft)
+            Spacer()
+            Text(value)
+                .font(.custom("Avenir Next", size: 14))
+                .fontWeight(.semibold)
+                .foregroundStyle(TodayTheme.ink)
+        }
+        .padding(12)
+        .background(TodayTheme.cardSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -1179,7 +1677,7 @@ private struct FocusTimerView: View {
                 HStack(spacing: 12) {
                     Button(isRunning ? "Pause" : "Start") {
                         isRunning.toggle()
-                        Haptics.tap()
+                        AppHaptics.tap()
                     }
                     .font(.custom("Avenir Next", size: 16))
                     .fontWeight(.semibold)
@@ -1191,7 +1689,7 @@ private struct FocusTimerView: View {
 
                     Button("Reset") {
                         resetTimer()
-                        Haptics.tap()
+                        AppHaptics.tap()
                     }
                     .font(.custom("Avenir Next", size: 16))
                     .fontWeight(.semibold)
@@ -1242,7 +1740,7 @@ private struct FocusTimerView: View {
         if remainingSeconds == 0 {
             isRunning = false
             onComplete(selectedMinutes)
-            Haptics.success()
+            AppHaptics.success()
         }
     }
 
@@ -1323,6 +1821,7 @@ private struct HabitDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var item: Habit
     let onDelete: (Habit) -> Void
+    let onProgressChange: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -1342,7 +1841,10 @@ private struct HabitDetailView: View {
                     Stepper("Streak: \(item.streak) days", value: $item.streak, in: 0...365)
                     Toggle("Completed today", isOn: Binding(
                         get: { item.progress >= 1 },
-                        set: { item.progress = $0 ? 1 : 0 }
+                        set: { newValue in
+                            item.progress = newValue ? 1 : 0
+                            onProgressChange()
+                        }
                     ))
                 }
 
@@ -1387,6 +1889,7 @@ private enum ActiveSheet: Identifiable {
     case focus
     case priorityManager
     case habitManager
+    case recap
 
     var id: Int {
         switch self {
@@ -1400,17 +1903,27 @@ private enum ActiveSheet: Identifiable {
             return 3
         case .habitManager:
             return 4
+        case .recap:
+            return 5
         }
     }
 }
 
-private enum Haptics {
-    static func tap() {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+private struct WeeklyQuest: Identifiable {
+    let id: String
+    let title: String
+    let detail: String
+    let progress: Int
+    let target: Int
+    let rewardXP: Int
+
+    var isComplete: Bool {
+        progress >= target
     }
 
-    static func success() {
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    var progressRatio: Double {
+        guard target > 0 else { return 0 }
+        return min(1, Double(progress) / Double(target))
     }
 }
 
@@ -1419,7 +1932,7 @@ private enum TodayTheme {
     static let backgroundBottom = Color(red: 0.94, green: 0.98, blue: 0.98)
     static let glow = Color(red: 0.93, green: 0.76, blue: 0.58, opacity: 0.45)
     static let panelSoft = Color(red: 0.87, green: 0.93, blue: 0.92, opacity: 0.6)
-    static let cardSurface = Color(red: 0.99, green: 0.98, blue: 0.97, opacity: 0.95)
+    static let cardSurface = AppPalette.card
     static let cardGradient = LinearGradient(
         colors: [
             Color(red: 0.99, green: 0.97, blue: 0.94),
@@ -1429,8 +1942,8 @@ private enum TodayTheme {
         endPoint: .bottomTrailing
     )
     static let cardBorder = Color(red: 0.85, green: 0.87, blue: 0.88, opacity: 0.6)
-    static let ink = Color(red: 0.15, green: 0.16, blue: 0.18)
-    static let inkSoft = Color(red: 0.38, green: 0.40, blue: 0.44)
+    static let ink = AppPalette.ink
+    static let inkSoft = AppPalette.inkSoft
     static let accent = Color(red: 0.19, green: 0.55, blue: 0.50)
     static let highlight = Color(red: 0.92, green: 0.42, blue: 0.32)
     static let badgeSoft = Color(red: 0.95, green: 0.86, blue: 0.76)
@@ -1461,5 +1974,5 @@ private enum TodayTheme {
         endPoint: .bottomTrailing
     )
     static let secondaryButton = Color(red: 0.94, green: 0.90, blue: 0.84)
-    static let shadow = Color(red: 0.15, green: 0.16, blue: 0.18, opacity: 0.08)
+    static let shadow = AppPalette.shadow
 }

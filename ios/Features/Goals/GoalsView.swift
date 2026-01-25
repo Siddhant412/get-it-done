@@ -39,61 +39,12 @@ struct GoalsView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .task {
-            seedIfNeeded()
-        }
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .addGoal:
                 GoalEditorView(onSave: addGoal)
             }
         }
-    }
-
-    private func seedIfNeeded() {
-        guard goals.isEmpty else { return }
-
-        let goalA = Goal(
-            title: "DSA Mastery",
-            iconName: "function",
-            colorHex: "1F6F8B",
-            targetDate: Calendar.current.date(byAdding: .day, value: 90, to: Date()) ?? Date(),
-            priority: 1,
-            whyNote: "Crack interviews with consistent practice.",
-            category: "Learning",
-            sortOrder: 0
-        )
-        let milestonesA = [
-            "Finish 50 medium problems",
-            "Solve 10 dynamic programming sets",
-            "Mock interview: 3 rounds"
-        ]
-        for (index, title) in milestonesA.enumerated() {
-            let milestone = Milestone(title: title, sortOrder: index, goal: goalA)
-            goalA.milestones.append(milestone)
-        }
-        modelContext.insert(goalA)
-
-        let goalB = Goal(
-            title: "Build Skillevate MVP",
-            iconName: "sparkles",
-            colorHex: "C57B57",
-            targetDate: Calendar.current.date(byAdding: .day, value: 45, to: Date()) ?? Date(),
-            priority: 2,
-            whyNote: "Launch to early users this month.",
-            category: "Product",
-            sortOrder: 1
-        )
-        let milestonesB = [
-            "Ship onboarding",
-            "Launch focus timer",
-            "Release TestFlight build"
-        ]
-        for (index, title) in milestonesB.enumerated() {
-            let milestone = Milestone(title: title, sortOrder: index, goal: goalB)
-            goalB.milestones.append(milestone)
-        }
-        modelContext.insert(goalB)
     }
 
     private func addGoal(_ draft: GoalDraft) {
@@ -230,7 +181,7 @@ private struct GoalCard: View {
             GoalProgressBar(progress: goal.completionRatio, tint: GoalsTheme.tint(for: goal))
 
             HStack {
-                Text(goal.completedMilestoneSummary)
+                Text(goal.progressSummary)
                     .font(.custom("Avenir Next", size: 12))
                     .foregroundStyle(GoalsTheme.inkSoft)
                 Spacer()
@@ -318,13 +269,29 @@ private struct GoalDetailView: View {
                     onAdd: addTask
                 )
 
+                Text("Timeline")
+                    .font(.custom("Avenir Next", size: 20))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(GoalsTheme.ink)
+                    .padding(.top, 6)
+
+                if timelineEvents.isEmpty {
+                    Text("No completed milestones or tasks yet.")
+                        .font(.custom("Avenir Next", size: 13))
+                        .foregroundStyle(GoalsTheme.inkSoft)
+                } else {
+                    ForEach(timelineEvents) { event in
+                        GoalTimelineRow(event: event)
+                    }
+                }
+
                 Text("Skill tree")
                     .font(.custom("Avenir Next", size: 20))
                     .fontWeight(.semibold)
                     .foregroundStyle(GoalsTheme.ink)
                     .padding(.top, 6)
 
-                SkillTreeStub()
+                SkillTreeView(milestones: sortedMilestones, tint: GoalsTheme.tint(for: goal))
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
@@ -340,6 +307,34 @@ private struct GoalDetailView: View {
 
     private var sortedTasks: [TaskItem] {
         goal.tasks.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    private var timelineEvents: [GoalTimelineEvent] {
+        var events: [GoalTimelineEvent] = []
+
+        for milestone in goal.milestones where milestone.isCompleted {
+            let date = milestone.completedAt ?? milestone.createdAt
+            events.append(
+                GoalTimelineEvent(
+                    date: date,
+                    title: milestone.title,
+                    type: .milestone
+                )
+            )
+        }
+
+        for task in goal.tasks where task.isCompleted {
+            let date = task.completedAt ?? task.createdAt
+            events.append(
+                GoalTimelineEvent(
+                    date: date,
+                    title: task.title,
+                    type: .task
+                )
+            )
+        }
+
+        return events.sorted { $0.date > $1.date }
     }
 
     private func addMilestone() {
@@ -413,7 +408,7 @@ private struct GoalDetailHeader: View {
             GoalProgressBar(progress: goal.completionRatio, tint: GoalsTheme.tint(for: goal))
 
             HStack {
-                Text(goal.completedMilestoneSummary)
+                Text(goal.progressSummary)
                     .font(.custom("Avenir Next", size: 12))
                     .foregroundStyle(GoalsTheme.inkSoft)
                 Spacer()
@@ -528,7 +523,9 @@ private struct MilestoneRow: View {
     private func toggle() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             milestone.isCompleted.toggle()
+            milestone.completedAt = milestone.isCompleted ? Date() : nil
         }
+        AppHaptics.tap()
     }
 }
 
@@ -604,7 +601,9 @@ private struct GoalTaskRow: View {
     private func toggle() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             task.isCompleted.toggle()
+            task.completedAt = task.isCompleted ? Date() : nil
         }
+        AppHaptics.tap()
     }
 }
 
@@ -636,39 +635,323 @@ private struct AddTaskRow: View {
     }
 }
 
-private struct SkillTreeStub: View {
+private struct GoalTimelineRow: View {
+    let event: GoalTimelineEvent
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(event.type == .milestone ? GoalsTheme.primary : GoalsTheme.accent)
+                .frame(width: 10, height: 10)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(event.title)
+                    .font(.custom("Avenir Next", size: 14))
+                    .foregroundStyle(GoalsTheme.ink)
+                Text(event.type == .milestone ? "Milestone completed" : "Task completed")
+                    .font(.custom("Avenir Next", size: 11))
+                    .foregroundStyle(GoalsTheme.inkSoft)
+            }
+            Spacer()
+            Text(GoalDateFormatter.short.string(from: event.date))
+                .font(.custom("Avenir Next", size: 11))
+                .foregroundStyle(GoalsTheme.inkSoft)
+        }
+        .padding(12)
+        .background(GoalsTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: GoalsTheme.shadow, radius: 6, x: 0, y: 4)
+    }
+}
+
+private struct SkillTreeView: View {
+    let milestones: [Milestone]
+    let tint: Color
+
+    @State private var selectedNode: SkillTreeNodeData?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Unlock nodes as milestones are completed.")
+            HStack {
+                Text("Skill tree")
+                    .font(.custom("Avenir Next", size: 16))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(GoalsTheme.ink)
+                Spacer()
+                if !milestones.isEmpty {
+                    Text("\(completedCount)/\(milestones.count) unlocked")
+                        .font(.custom("Avenir Next", size: 12))
+                        .foregroundStyle(GoalsTheme.inkSoft)
+                }
+            }
+
+            Text("Unlock nodes by finishing milestones. Tap any node to see details.")
                 .font(.custom("Avenir Next", size: 13))
                 .foregroundStyle(GoalsTheme.inkSoft)
 
-            HStack(spacing: 12) {
-                SkillNode(isActive: true)
-                SkillNode(isActive: true)
-                SkillNode(isActive: false)
-                SkillNode(isActive: false)
+            if milestones.isEmpty {
+                Text("Add milestones to build your skill path.")
+                    .font(.custom("Avenir Next", size: 13))
+                    .foregroundStyle(GoalsTheme.inkSoft)
+                    .padding(12)
+                    .background(GoalsTheme.pill)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            } else {
+                SkillTreeMap(
+                    nodes: nodes,
+                    tint: tint,
+                    onSelect: { selectedNode = $0 }
+                )
             }
         }
         .padding(16)
         .background(GoalsTheme.card)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .shadow(color: GoalsTheme.shadow, radius: 8, x: 0, y: 5)
+        .sheet(item: $selectedNode) { node in
+            SkillTreeNodeDetailSheet(node: node, tint: tint)
+        }
+    }
+
+    private var completedCount: Int {
+        milestones.filter { $0.isCompleted }.count
+    }
+
+    private var nodes: [SkillTreeNodeData] {
+        let sorted = milestones.sorted { $0.sortOrder < $1.sortOrder }
+        let firstIncompleteIndex = sorted.firstIndex(where: { !$0.isCompleted })
+
+        return sorted.enumerated().map { index, milestone in
+            let status: SkillTreeNodeStatus
+            if milestone.isCompleted {
+                status = .completed
+            } else if firstIncompleteIndex == index {
+                status = .available
+            } else {
+                status = .locked
+            }
+            return SkillTreeNodeData(id: milestone.id, milestone: milestone, status: status)
+        }
     }
 }
 
-private struct SkillNode: View {
-    let isActive: Bool
+private struct SkillTreeMap: View {
+    let nodes: [SkillTreeNodeData]
+    let tint: Color
+    let onSelect: (SkillTreeNodeData) -> Void
+
+    private let nodeSpacing: CGFloat = 84
+    private let nodeSize: CGFloat = 34
 
     var body: some View {
-        Circle()
-            .fill(isActive ? GoalsTheme.primary : GoalsTheme.track)
-            .frame(width: 22, height: 22)
-            .overlay(
-                Circle()
-                    .stroke(GoalsTheme.primary.opacity(isActive ? 0 : 0.4), lineWidth: 2)
-            )
+        GeometryReader { proxy in
+            let positions = nodePositions(in: proxy.size)
+
+            ZStack {
+                ForEach(0..<max(positions.count - 1, 0), id: \.self) { index in
+                    Path { path in
+                        path.move(to: positions[index])
+                        path.addLine(to: positions[index + 1])
+                    }
+                    .stroke(
+                        nodes[index + 1].status == .locked ? GoalsTheme.track : tint.opacity(0.6),
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                    )
+                }
+
+                ForEach(Array(nodes.enumerated()), id: \.element.id) { index, node in
+                    SkillTreeNodeView(node: node, tint: tint, onSelect: { onSelect(node) })
+                        .frame(width: 140)
+                        .position(positions[index])
+                }
+            }
+        }
+        .frame(height: mapHeight)
     }
+
+    private var mapHeight: CGFloat {
+        max(140, CGFloat(nodes.count - 1) * nodeSpacing + nodeSize * 2)
+    }
+
+    private func nodePositions(in size: CGSize) -> [CGPoint] {
+        let centerX = size.width / 2
+        let leftX = size.width * 0.28
+        let rightX = size.width * 0.72
+        let baseY = nodeSize
+
+        return nodes.enumerated().map { index, _ in
+            let x: CGFloat
+            if nodes.count == 1 {
+                x = centerX
+            } else {
+                x = index.isMultiple(of: 2) ? leftX : rightX
+            }
+            let y = baseY + CGFloat(index) * nodeSpacing
+            return CGPoint(x: x, y: y)
+        }
+    }
+}
+
+private struct SkillTreeNodeView: View {
+    let node: SkillTreeNodeData
+    let tint: Color
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(spacing: 6) {
+                ZStack {
+                    Circle()
+                        .fill(nodeFill)
+                        .frame(width: 28, height: 28)
+                        .overlay(
+                            Circle()
+                                .stroke(nodeStroke, lineWidth: node.status == .locked ? 1 : 2)
+                        )
+
+                    Image(systemName: nodeIcon)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(node.status == .locked ? GoalsTheme.inkSoft : .white)
+                }
+
+                Text(node.milestone.title)
+                    .font(.custom("Avenir Next", size: 11))
+                    .foregroundStyle(GoalsTheme.ink)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+
+                Text(node.status.label)
+                    .font(.custom("Avenir Next", size: 10))
+                    .foregroundStyle(GoalsTheme.inkSoft)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(node.milestone.title), \(node.status.label)")
+    }
+
+    private var nodeFill: Color {
+        switch node.status {
+        case .completed:
+            return tint
+        case .available:
+            return tint.opacity(0.85)
+        case .locked:
+            return GoalsTheme.track
+        }
+    }
+
+    private var nodeStroke: Color {
+        node.status == .locked ? GoalsTheme.inkSoft.opacity(0.4) : tint
+    }
+
+    private var nodeIcon: String {
+        switch node.status {
+        case .completed:
+            return "checkmark"
+        case .available:
+            return "sparkles"
+        case .locked:
+            return "lock.fill"
+        }
+    }
+}
+
+private struct SkillTreeNodeDetailSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let milestone: Milestone
+    let status: SkillTreeNodeStatus
+    let tint: Color
+
+    init(node: SkillTreeNodeData, tint: Color) {
+        self.milestone = node.milestone
+        self.status = node.status
+        self.tint = tint
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(milestone.title)
+                    .font(.custom("Avenir Next", size: 20))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(GoalsTheme.ink)
+
+                Text(statusMessage)
+                    .font(.custom("Avenir Next", size: 13))
+                    .foregroundStyle(GoalsTheme.inkSoft)
+
+                if let dueDate = milestone.dueDate {
+                    Text("Due \(GoalDateFormatter.medium.string(from: dueDate))")
+                        .font(.custom("Avenir Next", size: 12))
+                        .foregroundStyle(GoalsTheme.inkSoft)
+                }
+
+                Button(action: toggleCompletion) {
+                    Text(milestone.isCompleted ? "Mark as not done" : "Mark as complete")
+                        .font(.custom("Avenir Next", size: 14))
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.white)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity)
+                        .background(status == .locked ? GoalsTheme.track : tint)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .disabled(status == .locked)
+
+                Spacer()
+            }
+            .padding(20)
+            .navigationTitle("Milestone")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private var statusMessage: String {
+        switch status {
+        case .completed:
+            return "Completed. Keep building on this win."
+        case .available:
+            return "Next up. Finish this to unlock the path."
+        case .locked:
+            return "Locked. Finish the previous milestone first."
+        }
+    }
+
+    private func toggleCompletion() {
+        guard status != .locked else { return }
+        milestone.isCompleted.toggle()
+        milestone.completedAt = milestone.isCompleted ? Date() : nil
+        AppHaptics.tap()
+    }
+}
+
+private enum SkillTreeNodeStatus {
+    case completed
+    case available
+    case locked
+
+    var label: String {
+        switch self {
+        case .completed:
+            return "Completed"
+        case .available:
+            return "Next"
+        case .locked:
+            return "Locked"
+        }
+    }
+}
+
+private struct SkillTreeNodeData: Identifiable {
+    let id: UUID
+    let milestone: Milestone
+    let status: SkillTreeNodeStatus
 }
 
 private struct GoalEditorView: View {
@@ -770,6 +1053,18 @@ private struct GoalDraft {
     let colorHex: String
 }
 
+private struct GoalTimelineEvent: Identifiable {
+    let id = UUID()
+    let date: Date
+    let title: String
+    let type: GoalTimelineEventType
+}
+
+private enum GoalTimelineEventType {
+    case milestone
+    case task
+}
+
 private struct GoalIconOption: Identifiable {
     let id = UUID()
     let name: String
@@ -823,13 +1118,14 @@ private enum GoalsTheme {
     static let backgroundTop = Color(red: 0.95, green: 0.93, blue: 0.97)
     static let backgroundBottom = Color(red: 0.97, green: 0.98, blue: 0.95)
     static let glow = Color(red: 0.80, green: 0.86, blue: 0.95, opacity: 0.5)
-    static let card = Color(red: 0.99, green: 0.98, blue: 0.97)
+    static let card = AppPalette.card
     static let track = Color(red: 0.88, green: 0.90, blue: 0.92)
     static let pill = Color(red: 0.93, green: 0.90, blue: 0.95)
-    static let ink = Color(red: 0.15, green: 0.16, blue: 0.18)
-    static let inkSoft = Color(red: 0.38, green: 0.40, blue: 0.44)
+    static let ink = AppPalette.ink
+    static let inkSoft = AppPalette.inkSoft
     static let primary = Color(red: 0.30, green: 0.43, blue: 0.62)
-    static let shadow = Color(red: 0.15, green: 0.16, blue: 0.18, opacity: 0.08)
+    static let accent = Color(red: 0.78, green: 0.54, blue: 0.38)
+    static let shadow = AppPalette.shadow
 
     static func tint(for goal: Goal) -> Color {
         Color(hex: goal.colorHex) ?? primary
