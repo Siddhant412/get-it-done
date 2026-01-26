@@ -98,10 +98,28 @@ enum SampleDataSeeder {
             ("Draft streak reward visuals", goalB),
             ("Review heatmap intensity colors", goalA)
         ]
+        var seededTasks: [TaskItem] = []
         for (index, seed) in taskSeeds.enumerated() {
             let task = TaskItem(title: seed.0, priority: index, createdAt: Date(), goal: seed.1)
             context.insert(task)
+            seededTasks.append(task)
         }
+
+        let focusSessions = [
+            FocusSession(
+                startDate: Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date(),
+                durationMinutes: 25,
+                note: "Prototype focus flow",
+                task: seededTasks.first
+            ),
+            FocusSession(
+                startDate: Calendar.current.date(byAdding: .day, value: -3, to: Date()) ?? Date(),
+                durationMinutes: 45,
+                note: "Deep work on milestones",
+                task: nil
+            )
+        ]
+        focusSessions.forEach { context.insert($0) }
 
         let stats = UserStats(streakDays: 14, focusMinutes: 38, streakProtected: false)
         context.insert(stats)

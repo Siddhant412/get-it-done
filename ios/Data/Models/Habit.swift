@@ -9,6 +9,10 @@ final class Habit: Identifiable {
     var progress: Double
     var sortOrder: Int
     var createdAt: Date
+    var scheduleDays: [Int]
+    var reminderEnabled: Bool
+    var reminderHour: Int
+    var reminderMinute: Int
 
     @Relationship(deleteRule: .cascade, inverse: \HabitCheckIn.habit)
     var checkIns: [HabitCheckIn]
@@ -20,6 +24,10 @@ final class Habit: Identifiable {
         progress: Double = 0,
         sortOrder: Int,
         createdAt: Date = Date(),
+        scheduleDays: [Int] = [1, 2, 3, 4, 5, 6, 7],
+        reminderEnabled: Bool = false,
+        reminderHour: Int = 9,
+        reminderMinute: Int = 0,
         checkIns: [HabitCheckIn] = []
     ) {
         self.id = id
@@ -28,6 +36,10 @@ final class Habit: Identifiable {
         self.progress = progress
         self.sortOrder = sortOrder
         self.createdAt = createdAt
+        self.scheduleDays = scheduleDays
+        self.reminderEnabled = reminderEnabled
+        self.reminderHour = reminderHour
+        self.reminderMinute = reminderMinute
         self.checkIns = checkIns
     }
 }

@@ -8,6 +8,8 @@ struct InsightsView: View {
     @Query(sort: \Habit.sortOrder) private var habits: [Habit]
     @Query(sort: \TaskItem.createdAt, order: .reverse) private var tasks: [TaskItem]
     @Query(sort: \Milestone.createdAt, order: .reverse) private var milestones: [Milestone]
+    @Query(sort: \XPBonus.createdAt, order: .reverse) private var bonuses: [XPBonus]
+    @Query(sort: \FocusSession.startDate, order: .reverse) private var focusSessions: [FocusSession]
 
     var body: some View {
         ZStack {
@@ -33,6 +35,13 @@ struct InsightsView: View {
                             progress: xpProgress
                         )
 
+                        FocusSummaryCard(
+                            totalMinutes: focusMinutesLast30,
+                            activeDays: focusActiveDaysLast30,
+                            currentStreak: focusCurrentStreak,
+                            bestStreak: focusBestStreak
+                        )
+
                         TrendCard(
                             title: "Consistency trend",
                             subtitle: "Active days per week",
@@ -43,6 +52,12 @@ struct InsightsView: View {
                             title: "Intensity trend",
                             subtitle: "Average intensity per week",
                             chart: intensityChart
+                        )
+
+                        TrendCard(
+                            title: "Focus trend",
+                            subtitle: "Minutes per week",
+                            chart: focusChart
                         )
 
                         TrendCard(
@@ -78,7 +93,24 @@ struct InsightsView: View {
     }
 
     private var focusMinutesLast30: Int {
-        recentLogs.reduce(0) { $0 + $1.focusMinutes }
+        let calendar = Calendar.current
+        let startDate = calendar.date(byAdding: .day, value: -29, to: Date().startOfDay) ?? Date().startOfDay
+        return focusSessions.reduce(0) { total, session in
+            guard session.startDate >= startDate else { return total }
+            return total + session.durationMinutes
+        }
+    }
+
+    private var focusActiveDaysLast30: Int {
+        focusActiveDays(lastDays: 30).count
+    }
+
+    private var focusCurrentStreak: Int {
+        streakLength(from: Date().startOfDay, days: focusActiveDays(lastDays: 60))
+    }
+
+    private var focusBestStreak: Int {
+        bestStreak(in: focusActiveDays(lastDays: 90))
     }
 
     private var averageIntensityLast30: Int {
@@ -92,7 +124,7 @@ struct InsightsView: View {
     }
 
     private var totalXP: Int {
-        XPCalculator.totalXP(logs: logs, tasks: tasks, milestones: milestones)
+        XPCalculator.totalXP(logs: logs, tasks: tasks, milestones: milestones, bonuses: bonuses)
     }
 
     private var xpProgress: XPProgress {
@@ -111,7 +143,11 @@ struct InsightsView: View {
             guard let completedAt = milestone.completedAt, completedAt >= startDate else { return total }
             return total + XPCalculator.xpForMilestone(milestone)
         }
-        return logXP + taskXP + milestoneXP
+        let bonusXP = bonuses.reduce(0) { total, bonus in
+            guard bonus.createdAt >= startDate else { return total }
+            return total + bonus.amount
+        }
+        return logXP + taskXP + milestoneXP + bonusXP
     }
 
     private var bestStreak: Int {
@@ -150,6 +186,10 @@ struct InsightsView: View {
                 guard let completedAt = milestone.completedAt else { return false }
                 return completedAt >= current && completedAt < next
             }
+            let weekFocusMinutes = focusSessions.reduce(0) { total, session in
+                guard session.startDate >= current && session.startDate < next else { return total }
+                return total + session.durationMinutes
+            }
             let activeDays = weekLogs.filter { $0.intensity > 0.05 }.count
             let averageIntensity: Double
             if weekLogs.isEmpty {
@@ -158,15 +198,21 @@ struct InsightsView: View {
                 let total = weekLogs.reduce(0.0) { $0 + $1.intensity }
                 averageIntensity = total / Double(weekLogs.count)
             }
+            let weekBonus = bonuses.reduce(0) { total, bonus in
+                guard bonus.createdAt >= current && bonus.createdAt < next else { return total }
+                return total + bonus.amount
+            }
             let weekXP = weekLogs.reduce(0) { $0 + XPCalculator.xpForLog($1) }
                 + weekTasks.reduce(0) { $0 + XPCalculator.xpForTask($1) }
                 + weekMilestones.reduce(0) { $0 + XPCalculator.xpForMilestone($1) }
+                + weekBonus
             weeks.append(
                 InsightsWeek(
                     start: current,
                     activeDays: activeDays,
                     averageIntensity: averageIntensity,
-                    xpTotal: weekXP
+                    xpTotal: weekXP,
+                    focusMinutes: weekFocusMinutes
                 )
             )
             current = next
@@ -290,6 +336,42 @@ struct InsightsView: View {
         .frame(height: 180)
     }
 
+    private var focusChart: some View {
+        Chart(weeklyBuckets) { bucket in
+            BarMark(
+                x: .value("Week", bucket.start),
+                y: .value("Focus Minutes", bucket.focusMinutes)
+            )
+            .foregroundStyle(InsightsTheme.accent)
+            .clipShape(Capsule())
+        }
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .weekOfYear, count: 2)) { value in
+                AxisValueLabel {
+                    if let date = value.as(Date.self) {
+                        Text(InsightsDateFormatter.short.string(from: date))
+                            .font(.custom("Avenir Next", size: 10))
+                            .foregroundStyle(InsightsTheme.inkSoft)
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(values: .automatic(desiredCount: 3)) { value in
+                AxisValueLabel {
+                    if let number = value.as(Int.self) {
+                        Text("\(number)")
+                            .font(.custom("Avenir Next", size: 10))
+                            .foregroundStyle(InsightsTheme.inkSoft)
+                    }
+                }
+                AxisGridLine()
+                    .foregroundStyle(InsightsTheme.grid)
+            }
+        }
+        .frame(height: 180)
+    }
+
     private var topHabit: HabitHighlight? {
         let calendar = Calendar.current
         let startDate = calendar.date(byAdding: .day, value: -29, to: Date().startOfDay) ?? Date().startOfDay
@@ -309,6 +391,49 @@ struct InsightsView: View {
         }
 
         return HabitHighlight(title: habit.title, checkIns: top.value)
+    }
+
+    private func focusActiveDays(lastDays: Int) -> Set<Date> {
+        let calendar = Calendar.current
+        let startDate = calendar.date(byAdding: .day, value: -(lastDays - 1), to: Date().startOfDay) ?? Date().startOfDay
+        let days = focusSessions
+            .filter { $0.startDate >= startDate }
+            .map { $0.startDate.startOfDay }
+        return Set(days)
+    }
+
+    private func streakLength(from start: Date, days: Set<Date>) -> Int {
+        var count = 0
+        var cursor = start
+        let calendar = Calendar.current
+        while days.contains(cursor) {
+            count += 1
+            guard let next = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
+            cursor = next
+        }
+        return count
+    }
+
+    private func bestStreak(in days: Set<Date>) -> Int {
+        let sorted = days.sorted()
+        guard !sorted.isEmpty else { return 0 }
+
+        let calendar = Calendar.current
+        var best = 1
+        var current = 1
+
+        for index in 1..<sorted.count {
+            let prev = sorted[index - 1]
+            let currentDay = sorted[index]
+            let nextDay = calendar.date(byAdding: .day, value: 1, to: prev)
+            if nextDay == currentDay {
+                current += 1
+                best = max(best, current)
+            } else {
+                current = 1
+            }
+        }
+        return best
     }
 }
 
@@ -411,6 +536,36 @@ private struct SummaryPill: View {
         .padding(.horizontal, 10)
         .background(InsightsTheme.pill)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+private struct FocusSummaryCard: View {
+    let totalMinutes: Int
+    let activeDays: Int
+    let currentStreak: Int
+    let bestStreak: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Focus momentum")
+                .font(.custom("Avenir Next", size: 18))
+                .fontWeight(.semibold)
+                .foregroundStyle(InsightsTheme.ink)
+
+            HStack(spacing: 12) {
+                SummaryPill(title: "Minutes", value: "\(totalMinutes)")
+                SummaryPill(title: "Active days", value: "\(activeDays)")
+            }
+
+            HStack(spacing: 12) {
+                SummaryPill(title: "Current streak", value: "\(currentStreak)d")
+                SummaryPill(title: "Best streak", value: "\(bestStreak)d")
+            }
+        }
+        .padding(16)
+        .background(InsightsTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: InsightsTheme.shadow, radius: 8, x: 0, y: 5)
     }
 }
 
@@ -564,6 +719,7 @@ private struct InsightsWeek: Identifiable {
     let activeDays: Int
     let averageIntensity: Double
     let xpTotal: Int
+    let focusMinutes: Int
 
     var id: Date { start }
 }

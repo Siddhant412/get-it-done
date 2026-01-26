@@ -15,7 +15,10 @@ struct GetItDoneApp: App {
             DailyLog.self,
             Goal.self,
             Milestone.self,
-            TaskItem.self
+            TaskItem.self,
+            FocusSession.self,
+            QuestClaim.self,
+            XPBonus.self
         ])
     }
 }

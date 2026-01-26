@@ -347,6 +347,7 @@ private struct TaskEditorView: View {
 private struct TaskDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var task: TaskItem
+    @Query(sort: \FocusSession.startDate, order: .reverse) private var focusSessions: [FocusSession]
     let goals: [Goal]
     let onDelete: (TaskItem) -> Void
 
@@ -396,6 +397,31 @@ private struct TaskDetailView: View {
                     }
                 }
 
+                Section("Focus sessions") {
+                    if taskSessions.isEmpty {
+                        Text("No focus sessions linked yet.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(taskSessions) { session in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("\(session.durationMinutes) minutes")
+                                    Text(TaskDateFormatter.time.string(from: session.startDate))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text(TaskDateFormatter.short.string(from: session.startDate))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Text("Total: \(totalFocusMinutes) min")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Section {
                     Button("Delete task", role: .destructive) {
                         onDelete(task)
@@ -412,6 +438,14 @@ private struct TaskDetailView: View {
                 }
             }
         }
+    }
+
+    private var taskSessions: [FocusSession] {
+        focusSessions.filter { $0.task?.id == task.id }
+    }
+
+    private var totalFocusMinutes: Int {
+        taskSessions.reduce(0) { $0 + $1.durationMinutes }
     }
 }
 
@@ -460,6 +494,13 @@ private enum TaskDateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "MMM d"
+        return formatter
+    }()
+
+    static let time: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "h:mm a"
         return formatter
     }()
 }

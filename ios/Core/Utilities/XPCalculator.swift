@@ -69,6 +69,25 @@ enum XPCalculator {
         return logXP + taskXP + milestoneXP
     }
 
+    static func totalXP(
+        logs: [DailyLog],
+        tasks: [TaskItem],
+        milestones: [Milestone],
+        bonuses: [XPBonus]
+    ) -> Int {
+        totalXP(logs: logs, tasks: tasks, milestones: milestones)
+            + bonuses.reduce(0) { $0 + $1.amount }
+    }
+
+    static func bonuses(on day: Date, bonuses: [XPBonus]) -> Int {
+        let start = day.startOfDay
+        let end = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? start
+        return bonuses.reduce(0) { total, bonus in
+            guard bonus.createdAt >= start && bonus.createdAt < end else { return total }
+            return total + bonus.amount
+        }
+    }
+
     static func level(for totalXP: Int) -> Int {
         max(1, totalXP / levelStep + 1)
     }

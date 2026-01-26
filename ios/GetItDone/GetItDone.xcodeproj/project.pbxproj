@@ -37,6 +37,9 @@
 		0257C2A52F244004005B9C83 /* GetItDoneWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0257C2912F244003005B9C83 /* GetItDoneWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		0257C2AB2F2440E2005B9C83 /* GetItDoneWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C28B2F243FBC005B9C83 /* GetItDoneWidgets.swift */; };
 		0257C2AC2F2440E9005B9C83 /* WidgetDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C2892F243F17005B9C83 /* WidgetDataStore.swift */; };
+		0257C2B22F268E3A005B9C83 /* QuestClaim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C2B02F268E3A005B9C83 /* QuestClaim.swift */; };
+		0257C2B32F268E3A005B9C83 /* XPBonus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C2B12F268E3A005B9C83 /* XPBonus.swift */; };
+		0257C2B42F268E3A005B9C83 /* FocusSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C2AF2F268E3A005B9C83 /* FocusSession.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -129,6 +132,9 @@
 		0257C2932F244003005B9C83 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		0257C2952F244003005B9C83 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		0257C2AE2F244194005B9C83 /* GetItDoneWidgetsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GetItDoneWidgetsExtension.entitlements; sourceTree = "<group>"; };
+		0257C2AF2F268E3A005B9C83 /* FocusSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FocusSession.swift; path = ../Data/Models/FocusSession.swift; sourceTree = SOURCE_ROOT; };
+		0257C2B02F268E3A005B9C83 /* QuestClaim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QuestClaim.swift; path = ../Data/Models/QuestClaim.swift; sourceTree = SOURCE_ROOT; };
+		0257C2B12F268E3A005B9C83 /* XPBonus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = XPBonus.swift; path = ../Data/Models/XPBonus.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -399,6 +405,9 @@
 				0257C25F2F2038EB005B9C83 /* DailyPriority.swift */,
 				0257C2602F2038EB005B9C83 /* Goal.swift */,
 				0257C27F2F242D19005B9C83 /* HabitCheckIn.swift */,
+				0257C2AF2F268E3A005B9C83 /* FocusSession.swift */,
+				0257C2B02F268E3A005B9C83 /* QuestClaim.swift */,
+				0257C2B12F268E3A005B9C83 /* XPBonus.swift */,
 				0257C2612F2038EB005B9C83 /* Habit.swift */,
 				0257C27B2F241B21005B9C83 /* DailyLog.swift */,
 				0257C2622F2038EB005B9C83 /* Milestone.swift */,
@@ -644,6 +653,9 @@
 				0257C26D2F2038EB005B9C83 /* Goal.swift in Sources */,
 				0257C26E2F2038EB005B9C83 /* Habit.swift in Sources */,
 				0257C26F2F2038EB005B9C83 /* TaskItem.swift in Sources */,
+				0257C2B22F268E3A005B9C83 /* QuestClaim.swift in Sources */,
+				0257C2B32F268E3A005B9C83 /* XPBonus.swift in Sources */,
+				0257C2B42F268E3A005B9C83 /* FocusSession.swift in Sources */,
 				0257C27A2F204DBD005B9C83 /* TasksView.swift in Sources */,
 				0257C2702F2038EB005B9C83 /* UserStats.swift in Sources */,
 				0257C2802F242D19005B9C83 /* HabitCheckIn.swift in Sources */,

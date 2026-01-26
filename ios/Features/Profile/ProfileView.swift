@@ -7,8 +7,10 @@ struct ProfileView: View {
     @Query(sort: \DailyLog.date) private var logs: [DailyLog]
     @Query(sort: \TaskItem.createdAt, order: .reverse) private var tasks: [TaskItem]
     @Query(sort: \Milestone.createdAt, order: .reverse) private var milestones: [Milestone]
+    @Query(sort: \XPBonus.createdAt, order: .reverse) private var bonuses: [XPBonus]
 
     @State private var permissionDenied = false
+    @State private var showXPHistory = false
 
     var body: some View {
         ZStack {
@@ -18,7 +20,11 @@ struct ProfileView: View {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     ProfileHeader()
 
-                    XPProgressCard(totalXP: totalXP, progress: xpProgress)
+                    XPProgressCard(
+                        totalXP: totalXP,
+                        progress: xpProgress,
+                        onViewHistory: { showXPHistory = true }
+                    )
 
                     StreakProtectionCard(
                         streakDays: currentStats?.streakDays ?? 0,
@@ -52,6 +58,14 @@ struct ProfileView: View {
         .onAppear {
             ensureStats()
         }
+        .sheet(isPresented: $showXPHistory) {
+            XPHistoryView(
+                logs: logs,
+                tasks: tasks,
+                milestones: milestones,
+                bonuses: bonuses
+            )
+        }
     }
 
     private var currentStats: UserStats? {
@@ -69,7 +83,7 @@ struct ProfileView: View {
     }
 
     private var totalXP: Int {
-        XPCalculator.totalXP(logs: logs, tasks: tasks, milestones: milestones)
+        XPCalculator.totalXP(logs: logs, tasks: tasks, milestones: milestones, bonuses: bonuses)
     }
 
     private var xpProgress: XPProgress {
@@ -160,6 +174,7 @@ private struct ProfileHeader: View {
 private struct XPProgressCard: View {
     let totalXP: Int
     let progress: XPProgress
+    let onViewHistory: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -179,6 +194,10 @@ private struct XPProgressCard: View {
                     .foregroundStyle(ProfileTheme.inkSoft)
                 XPProgressBar(progress: progress.ratio)
             }
+
+            Button("View XP history", action: onViewHistory)
+                .font(.custom("Avenir Next", size: 12))
+                .foregroundStyle(ProfileTheme.inkSoft)
         }
         .padding(16)
         .background(ProfileTheme.card)
@@ -202,6 +221,181 @@ private struct XPProgressBar: View {
         }
         .frame(height: 8)
     }
+}
+
+private struct XPHistoryView: View {
+    @Environment(\.dismiss) private var dismiss
+    let logs: [DailyLog]
+    let tasks: [TaskItem]
+    let milestones: [Milestone]
+    let bonuses: [XPBonus]
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if summaries.isEmpty {
+                    Text("No XP activity yet.")
+                        .font(.custom("Avenir Next", size: 14))
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(summaries) { summary in
+                        Section {
+                            XPHistoryRow(summary: summary)
+
+                            if summary.bonusXP > 0 {
+                                XPBonusRow(title: "Quest bonuses", value: summary.bonusXP)
+                            }
+                        } header: {
+                            XPHistoryHeader(date: summary.date, total: summary.totalXP)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("XP history")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private var summaries: [XPDailySummary] {
+        let calendar = Calendar.current
+        let startDate = calendar.date(byAdding: .day, value: -29, to: Date().startOfDay) ?? Date().startOfDay
+
+        var daySet: Set<Date> = []
+        logs.filter { $0.date >= startDate }.forEach { daySet.insert($0.date.startOfDay) }
+        tasks.forEach { task in
+            if let completedAt = task.completedAt, completedAt >= startDate {
+                daySet.insert(completedAt.startOfDay)
+            }
+        }
+        milestones.forEach { milestone in
+            if let completedAt = milestone.completedAt, completedAt >= startDate {
+                daySet.insert(completedAt.startOfDay)
+            }
+        }
+        bonuses.forEach { bonus in
+            if bonus.createdAt >= startDate {
+                daySet.insert(bonus.createdAt.startOfDay)
+            }
+        }
+
+        let sortedDays = daySet.sorted(by: >)
+        return sortedDays.map { day in
+            let logXP = logs.filter { $0.date.startOfDay == day }.reduce(0) { $0 + XPCalculator.xpForLog($1) }
+            let taskXP = tasks.reduce(0) { total, task in
+                guard let completedAt = task.completedAt,
+                      completedAt.startOfDay == day else { return total }
+                return total + XPCalculator.xpForTask(task)
+            }
+            let milestoneXP = milestones.reduce(0) { total, milestone in
+                guard let completedAt = milestone.completedAt,
+                      completedAt.startOfDay == day else { return total }
+                return total + XPCalculator.xpForMilestone(milestone)
+            }
+            let bonusXP = bonuses.reduce(0) { total, bonus in
+                guard bonus.createdAt.startOfDay == day else { return total }
+                return total + bonus.amount
+            }
+            return XPDailySummary(
+                date: day,
+                logXP: logXP,
+                taskXP: taskXP,
+                milestoneXP: milestoneXP,
+                bonusXP: bonusXP
+            )
+        }
+    }
+}
+
+private struct XPHistoryHeader: View {
+    let date: Date
+    let total: Int
+
+    var body: some View {
+        HStack {
+            Text(XPDateFormatter.long.string(from: date))
+                .font(.custom("Avenir Next", size: 12))
+                .foregroundStyle(ProfileTheme.inkSoft)
+            Spacer()
+            Text("\(total) XP")
+                .font(.custom("Avenir Next", size: 12))
+                .foregroundStyle(ProfileTheme.inkSoft)
+        }
+    }
+}
+
+private struct XPHistoryRow: View {
+    let summary: XPDailySummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            XPBreakdownRow(title: "Daily progress", value: summary.logXP)
+            XPBreakdownRow(title: "Tasks", value: summary.taskXP)
+            XPBreakdownRow(title: "Milestones", value: summary.milestoneXP)
+        }
+    }
+}
+
+private struct XPBonusRow: View {
+    let title: String
+    let value: Int
+
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.custom("Avenir Next", size: 12))
+                .foregroundStyle(ProfileTheme.inkSoft)
+            Spacer()
+            Text("+\(value) XP")
+                .font(.custom("Avenir Next", size: 12))
+                .foregroundStyle(ProfileTheme.ink)
+        }
+    }
+}
+
+private struct XPBreakdownRow: View {
+    let title: String
+    let value: Int
+
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.custom("Avenir Next", size: 12))
+                .foregroundStyle(ProfileTheme.inkSoft)
+            Spacer()
+            Text("\(value) XP")
+                .font(.custom("Avenir Next", size: 12))
+                .foregroundStyle(ProfileTheme.ink)
+        }
+    }
+}
+
+private struct XPDailySummary: Identifiable {
+    let date: Date
+    let logXP: Int
+    let taskXP: Int
+    let milestoneXP: Int
+    let bonusXP: Int
+
+    var id: Date { date }
+
+    var totalXP: Int {
+        logXP + taskXP + milestoneXP + bonusXP
+    }
+}
+
+private enum XPDateFormatter {
+    static let long: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEEE, MMM d"
+        return formatter
+    }()
 }
 
 private struct StreakProtectionCard: View {

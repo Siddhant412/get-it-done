@@ -15,6 +15,9 @@ struct TodayView: View {
     @Query(sort: \HabitCheckIn.date) private var habitCheckIns: [HabitCheckIn]
     @Query(sort: \TaskItem.createdAt, order: .reverse) private var tasks: [TaskItem]
     @Query(sort: \Milestone.createdAt, order: .reverse) private var milestones: [Milestone]
+    @Query(sort: \XPBonus.createdAt, order: .reverse) private var xpBonuses: [XPBonus]
+    @Query(sort: \QuestClaim.claimedAt, order: .reverse) private var questClaims: [QuestClaim]
+    @Query(sort: \FocusSession.startDate, order: .reverse) private var focusSessions: [FocusSession]
 
     @State private var animatedProgress: Double = 0.0
     @State private var activeSheet: ActiveSheet?
@@ -64,7 +67,7 @@ struct TodayView: View {
                         onProgressChange: recordHabitCheckIn
                     )
 
-                    WeeklyQuestCard(quests: weeklyQuests)
+                    WeeklyQuestCard(quests: weeklyQuests, onClaim: claimQuest)
 
                     MomentumCard(
                         progress: momentumProgress,
@@ -76,6 +79,12 @@ struct TodayView: View {
                     QuickActionsCard(
                         onStartFocus: { activeSheet = .focus },
                         onQuickAdd: { activeSheet = .quickAdd }
+                    )
+
+                    FocusHistoryCard(
+                        sessions: recentFocusSessions,
+                        totalMinutes: focusMinutesLast7,
+                        onViewAll: { activeSheet = .focusHistory }
                     )
 
                     RecapCard(
@@ -122,7 +131,7 @@ struct TodayView: View {
                     onAddHabit: addHabit
                 )
             case .focus:
-                FocusTimerView(onComplete: addFocusMinutes)
+                FocusTimerView(tasks: tasks, onComplete: addFocusSession)
             case .priorityManager:
                 PriorityManagerView()
             case .habitManager:
@@ -137,6 +146,8 @@ struct TodayView: View {
                     focusMinutes: currentFocusMinutes,
                     progress: todayProgress
                 )
+            case .focusHistory:
+                FocusHistoryView(sessions: focusSessions)
             }
         }
         .sheet(item: $selectedPriority) { item in
@@ -196,6 +207,7 @@ struct TodayView: View {
         return baseXP
             + XPCalculator.xpForTasks(tasks, on: day)
             + XPCalculator.xpForMilestones(milestones, on: day)
+            + XPCalculator.bonuses(on: day, bonuses: xpBonuses)
     }
 
     private var weeklyCalendar: Calendar {
@@ -245,6 +257,26 @@ struct TodayView: View {
         }
     }
 
+    private var recentFocusSessions: [FocusSession] {
+        Array(focusSessions.prefix(3))
+    }
+
+    private var focusMinutesLast7: Int {
+        let calendar = Calendar.current
+        let startDate = calendar.date(byAdding: .day, value: -6, to: Date().startOfDay) ?? Date().startOfDay
+        return focusSessions.reduce(0) { total, session in
+            guard session.startDate >= startDate else { return total }
+            return total + session.durationMinutes
+        }
+    }
+
+    private var claimedQuestIDs: Set<String> {
+        let sameWeekClaims = questClaims.filter { claim in
+            weeklyCalendar.isDate(claim.weekStart, inSameDayAs: weekStart)
+        }
+        return Set(sameWeekClaims.map(\.questID))
+    }
+
     private var weeklyQuests: [WeeklyQuest] {
         [
             WeeklyQuest(
@@ -253,7 +285,8 @@ struct TodayView: View {
                 detail: "Active days this week",
                 progress: weeklyActiveDays,
                 target: 5,
-                rewardXP: 120
+                rewardXP: 120,
+                isClaimed: claimedQuestIDs.contains("show-up")
             ),
             WeeklyQuest(
                 id: "priorities",
@@ -261,7 +294,8 @@ struct TodayView: View {
                 detail: "Top 3 wins completed",
                 progress: weeklyPrioritiesCompleted,
                 target: 8,
-                rewardXP: 160
+                rewardXP: 160,
+                isClaimed: claimedQuestIDs.contains("priorities")
             ),
             WeeklyQuest(
                 id: "focus",
@@ -269,7 +303,8 @@ struct TodayView: View {
                 detail: "Deep work minutes",
                 progress: weeklyFocusMinutes,
                 target: 150,
-                rewardXP: 180
+                rewardXP: 180,
+                isClaimed: claimedQuestIDs.contains("focus")
             ),
             WeeklyQuest(
                 id: "tasks",
@@ -277,7 +312,8 @@ struct TodayView: View {
                 detail: "Ship concrete work",
                 progress: weeklyTasksCompleted,
                 target: 3,
-                rewardXP: 150
+                rewardXP: 150,
+                isClaimed: claimedQuestIDs.contains("tasks")
             ),
             WeeklyQuest(
                 id: "habits",
@@ -285,9 +321,31 @@ struct TodayView: View {
                 detail: "Tiny wins count",
                 progress: weeklyHabitCheckIns,
                 target: 6,
-                rewardXP: 140
+                rewardXP: 140,
+                isClaimed: claimedQuestIDs.contains("habits")
             )
         ]
+    }
+
+    private func claimQuest(_ quest: WeeklyQuest) {
+        guard quest.isComplete, !quest.isClaimed else { return }
+
+        let claim = QuestClaim(
+            questID: quest.id,
+            weekStart: weekStart,
+            rewardXP: quest.rewardXP
+        )
+        modelContext.insert(claim)
+
+        let bonus = XPBonus(
+            source: "quest",
+            detail: quest.title,
+            amount: quest.rewardXP,
+            weekStart: weekStart
+        )
+        modelContext.insert(bonus)
+
+        AppHaptics.success()
     }
 
     private var isStreakProtected: Bool {
@@ -336,10 +394,18 @@ struct TodayView: View {
         upsertTodayLog()
     }
 
-    private func addFocusMinutes(_ minutes: Int) {
+    private func addFocusSession(minutes: Int, task: TaskItem?) {
         updateStats { stats in
             stats.focusMinutes += minutes
         }
+
+        let session = FocusSession(
+            startDate: Date(),
+            durationMinutes: minutes,
+            task: task
+        )
+        modelContext.insert(session)
+
         AppHaptics.success()
         upsertTodayLog()
     }
@@ -483,6 +549,13 @@ struct TodayView: View {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "EEEE, MMM d"
+        return formatter
+    }()
+
+    static let dateTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MMM d, h:mm a"
         return formatter
     }()
 }
@@ -815,6 +888,8 @@ private struct HabitCard: View {
                 .font(.custom("Avenir Next", size: 12))
                 .foregroundStyle(TodayTheme.inkSoft)
 
+            HabitScheduleRow(scheduleDays: item.scheduleDays)
+
             ProgressBar(progress: item.progress)
 
             Button(action: toggleFullCheckIn) {
@@ -918,6 +993,38 @@ private struct ProgressBar: View {
     }
 }
 
+private struct HabitScheduleRow: View {
+    let scheduleDays: [Int]
+
+    private let labels = ["M", "T", "W", "T", "F", "S", "S"]
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(1...7, id: \.self) { day in
+                let isScheduled = scheduleDays.contains(day)
+                let isToday = day == todayIndex
+                Text(labels[day - 1])
+                    .font(.custom("Avenir Next", size: 10))
+                    .fontWeight(.semibold)
+                    .frame(width: 18, height: 18)
+                    .foregroundStyle(isScheduled ? .white : TodayTheme.inkSoft)
+                    .background(isScheduled ? TodayTheme.accent : TodayTheme.badgeStrong)
+                    .clipShape(Circle())
+                    .overlay(
+                        Circle()
+                            .stroke(isToday ? TodayTheme.highlight : .clear, lineWidth: 2)
+                    )
+            }
+        }
+    }
+
+    private var todayIndex: Int {
+        let weekday = Calendar.current.component(.weekday, from: Date())
+        let mapping = [7, 1, 2, 3, 4, 5, 6]
+        return mapping[weekday - 1]
+    }
+}
+
 private struct MomentumCard: View {
     let progress: Double
     let isProtected: Bool
@@ -966,6 +1073,7 @@ private struct MomentumCard: View {
 
 private struct WeeklyQuestCard: View {
     let quests: [WeeklyQuest]
+    let onClaim: (WeeklyQuest) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -981,7 +1089,7 @@ private struct WeeklyQuestCard: View {
             }
 
             ForEach(quests) { quest in
-                QuestRow(quest: quest)
+                QuestRow(quest: quest, onClaim: { onClaim(quest) })
             }
         }
         .padding(16)
@@ -993,6 +1101,7 @@ private struct WeeklyQuestCard: View {
 
 private struct QuestRow: View {
     let quest: WeeklyQuest
+    let onClaim: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -1002,7 +1111,16 @@ private struct QuestRow: View {
                     .fontWeight(.semibold)
                     .foregroundStyle(TodayTheme.ink)
                 Spacer()
-                QuestStatusPill(isComplete: quest.isComplete, rewardXP: quest.rewardXP)
+                if quest.isClaimed {
+                    QuestStatusPill(label: "Claimed", isEmphasis: true)
+                } else if quest.isComplete {
+                    Button(action: onClaim) {
+                        QuestStatusPill(label: "Claim +\(quest.rewardXP) XP", isEmphasis: true)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    QuestStatusPill(label: "+\(quest.rewardXP) XP", isEmphasis: false)
+                }
             }
 
             Text(quest.detail)
@@ -1023,21 +1141,21 @@ private struct QuestRow: View {
 }
 
 private struct QuestStatusPill: View {
-    let isComplete: Bool
-    let rewardXP: Int
+    let label: String
+    let isEmphasis: Bool
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: isComplete ? "checkmark.circle.fill" : "bolt.fill")
+            Image(systemName: isEmphasis ? "checkmark.circle.fill" : "bolt.fill")
                 .font(.system(size: 10, weight: .semibold))
-            Text(isComplete ? "Done" : "+\(rewardXP) XP")
+            Text(label)
         }
         .font(.custom("Avenir Next", size: 11))
         .fontWeight(.semibold)
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
-        .foregroundStyle(isComplete ? .white : TodayTheme.ink)
-        .background(isComplete ? TodayTheme.accent : TodayTheme.badgeStrong)
+        .foregroundStyle(isEmphasis ? .white : TodayTheme.ink)
+        .background(isEmphasis ? TodayTheme.accent : TodayTheme.badgeStrong)
         .clipShape(Capsule())
     }
 }
@@ -1123,6 +1241,109 @@ private struct QuickActionsCard: View {
         .background(TodayTheme.cardSurface)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .shadow(color: TodayTheme.shadow, radius: 8, x: 0, y: 5)
+    }
+}
+
+private struct FocusHistoryCard: View {
+    let sessions: [FocusSession]
+    let totalMinutes: Int
+    let onViewAll: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Focus log")
+                    .font(.custom("Avenir Next", size: 18))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(TodayTheme.ink)
+                Spacer()
+                Button("See all", action: onViewAll)
+                    .font(.custom("Avenir Next", size: 12))
+                    .foregroundStyle(TodayTheme.inkSoft)
+            }
+
+            Text("Last 7 days: \(totalMinutes) min")
+                .font(.custom("Avenir Next", size: 12))
+                .foregroundStyle(TodayTheme.inkSoft)
+
+            if sessions.isEmpty {
+                Text("No focus sessions yet.")
+                    .font(.custom("Avenir Next", size: 12))
+                    .foregroundStyle(TodayTheme.inkSoft)
+            } else {
+                ForEach(sessions) { session in
+                    FocusSessionRow(session: session)
+                }
+            }
+        }
+        .padding(16)
+        .background(TodayTheme.cardSurface)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: TodayTheme.shadow, radius: 8, x: 0, y: 5)
+    }
+}
+
+private struct FocusSessionRow: View {
+    let session: FocusSession
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.task?.title ?? "Unassigned focus")
+                    .font(.custom("Avenir Next", size: 13))
+                    .foregroundStyle(TodayTheme.ink)
+                Text(TodayView.dateTimeFormatter.string(from: session.startDate))
+                    .font(.custom("Avenir Next", size: 11))
+                    .foregroundStyle(TodayTheme.inkSoft)
+            }
+            Spacer()
+            Text("\(session.durationMinutes)m")
+                .font(.custom("Avenir Next", size: 12))
+                .fontWeight(.semibold)
+                .foregroundStyle(TodayTheme.ink)
+        }
+        .padding(10)
+        .background(TodayTheme.pillBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+private struct FocusHistoryView: View {
+    @Environment(\.dismiss) private var dismiss
+    let sessions: [FocusSession]
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if sessions.isEmpty {
+                    Text("No focus sessions yet.")
+                        .font(.custom("Avenir Next", size: 14))
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(sessions) { session in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(session.task?.title ?? "Unassigned focus")
+                                .font(.custom("Avenir Next", size: 16))
+                            Text(TodayView.dateTimeFormatter.string(from: session.startDate))
+                                .font(.custom("Avenir Next", size: 12))
+                                .foregroundStyle(.secondary)
+                            Text("\(session.durationMinutes) minutes")
+                                .font(.custom("Avenir Next", size: 12))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+            .navigationTitle("Focus history")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1646,7 +1867,10 @@ private struct FocusTimerView: View {
     @State private var remainingSeconds = 25 * 60
     @State private var isRunning = false
 
-    let onComplete: (Int) -> Void
+    let tasks: [TaskItem]
+    let onComplete: (Int, TaskItem?) -> Void
+
+    @State private var selectedTask: TaskItem?
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -1665,6 +1889,8 @@ private struct FocusTimerView: View {
                         .fontWeight(.bold)
                         .foregroundStyle(TodayTheme.ink)
                 }
+
+                FocusTaskPicker(tasks: tasks, selectedTask: $selectedTask)
 
                 Picker("Length", selection: $selectedMinutes) {
                     Text("15 min").tag(15)
@@ -1739,7 +1965,7 @@ private struct FocusTimerView: View {
         remainingSeconds -= 1
         if remainingSeconds == 0 {
             isRunning = false
-            onComplete(selectedMinutes)
+            onComplete(selectedMinutes, selectedTask)
             AppHaptics.success()
         }
     }
@@ -1747,6 +1973,44 @@ private struct FocusTimerView: View {
     private func resetTimer() {
         isRunning = false
         remainingSeconds = selectedMinutes * 60
+    }
+}
+
+private struct FocusTaskPicker: View {
+    let tasks: [TaskItem]
+    @Binding var selectedTask: TaskItem?
+
+    var body: some View {
+        Menu {
+            Button("No task") {
+                selectedTask = nil
+            }
+
+            if !tasks.isEmpty {
+                Divider()
+            }
+
+            ForEach(tasks) { task in
+                Button(task.title) {
+                    selectedTask = task
+                }
+            }
+        } label: {
+            HStack {
+                Text(selectedTask?.title ?? "Attach to task")
+                    .font(.custom("Avenir Next", size: 14))
+                    .foregroundStyle(TodayTheme.ink)
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(TodayTheme.inkSoft)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(TodayTheme.secondaryButton)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .disabled(tasks.isEmpty)
     }
 }
 
@@ -1823,6 +2087,8 @@ private struct HabitDetailView: View {
     let onDelete: (Habit) -> Void
     let onProgressChange: () -> Void
 
+    @State private var permissionDenied = false
+
     var body: some View {
         NavigationStack {
             Form {
@@ -1848,6 +2114,32 @@ private struct HabitDetailView: View {
                     ))
                 }
 
+                Section("Schedule") {
+                    Text("Active days")
+                        .font(.custom("Avenir Next", size: 13))
+                        .foregroundStyle(.secondary)
+                    WeekdayPicker(selectedDays: Binding(
+                        get: { item.scheduleDays },
+                        set: { item.scheduleDays = $0.sorted() }
+                    ))
+                }
+
+                Section("Reminder") {
+                    Toggle("Enable reminders", isOn: $item.reminderEnabled)
+
+                    DatePicker("Time", selection: Binding(
+                        get: { reminderTime },
+                        set: { updateReminderTime($0) }
+                    ), displayedComponents: .hourAndMinute)
+                    .disabled(!item.reminderEnabled)
+
+                    if permissionDenied {
+                        Text("Notifications are disabled. Enable them in Settings to receive reminders.")
+                            .font(.custom("Avenir Next", size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Section {
                     Button("Delete habit", role: .destructive) {
                         onDelete(item)
@@ -1863,8 +2155,121 @@ private struct HabitDetailView: View {
                     }
                 }
             }
+            .onChange(of: item.reminderEnabled) { newValue in
+                handleReminderToggle(newValue)
+            }
+            .onChange(of: item.scheduleDays) { _ in
+                scheduleHabitReminderIfNeeded()
+            }
+            .onChange(of: item.reminderHour) { _ in
+                scheduleHabitReminderIfNeeded()
+            }
+            .onChange(of: item.reminderMinute) { _ in
+                scheduleHabitReminderIfNeeded()
+            }
+            .onChange(of: item.title) { _ in
+                scheduleHabitReminderIfNeeded()
+            }
         }
     }
+
+    private var reminderTime: Date {
+        let calendar = Calendar.current
+        var components = calendar.dateComponents([.year, .month, .day], from: Date())
+        components.hour = item.reminderHour
+        components.minute = item.reminderMinute
+        return calendar.date(from: components) ?? Date()
+    }
+
+    private func updateReminderTime(_ date: Date) {
+        let calendar = Calendar.current
+        item.reminderHour = calendar.component(.hour, from: date)
+        item.reminderMinute = calendar.component(.minute, from: date)
+    }
+
+    private func handleReminderToggle(_ isOn: Bool) {
+        Task {
+            if isOn {
+                let granted = await NotificationManager.requestAuthorization()
+                if granted {
+                    permissionDenied = false
+                    await NotificationManager.scheduleHabitReminders(
+                        habitID: item.id,
+                        title: item.title,
+                        days: item.scheduleDays,
+                        hour: item.reminderHour,
+                        minute: item.reminderMinute
+                    )
+                } else {
+                    item.reminderEnabled = false
+                    permissionDenied = true
+                }
+            } else {
+                await NotificationManager.clearHabitReminders(habitID: item.id)
+            }
+        }
+    }
+
+    private func scheduleHabitReminderIfNeeded() {
+        guard item.reminderEnabled else { return }
+        Task {
+            await NotificationManager.scheduleHabitReminders(
+                habitID: item.id,
+                title: item.title,
+                days: item.scheduleDays,
+                hour: item.reminderHour,
+                minute: item.reminderMinute
+            )
+        }
+    }
+}
+
+private struct WeekdayPicker: View {
+    @Binding var selectedDays: [Int]
+
+    private let days = [
+        WeekdayOption(id: 1, short: "M"),
+        WeekdayOption(id: 2, short: "T"),
+        WeekdayOption(id: 3, short: "W"),
+        WeekdayOption(id: 4, short: "T"),
+        WeekdayOption(id: 5, short: "F"),
+        WeekdayOption(id: 6, short: "S"),
+        WeekdayOption(id: 7, short: "S")
+    ]
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(days) { day in
+                Button(action: { toggle(day.id) }) {
+                    Text(day.short)
+                        .font(.custom("Avenir Next", size: 12))
+                        .fontWeight(.semibold)
+                        .foregroundStyle(isSelected(day.id) ? .white : TodayTheme.ink)
+                        .frame(width: 28, height: 28)
+                        .background(isSelected(day.id) ? TodayTheme.accent : TodayTheme.badgeStrong)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func isSelected(_ id: Int) -> Bool {
+        selectedDays.contains(id)
+    }
+
+    private func toggle(_ id: Int) {
+        if isSelected(id) {
+            selectedDays.removeAll { $0 == id }
+        } else {
+            selectedDays.append(id)
+        }
+    }
+}
+
+private struct WeekdayOption: Identifiable {
+    let id: Int
+    let short: String
 }
 
 private enum AddType: String, CaseIterable, Identifiable {
@@ -1887,6 +2292,7 @@ private enum ActiveSheet: Identifiable {
     case progress
     case quickAdd
     case focus
+    case focusHistory
     case priorityManager
     case habitManager
     case recap
@@ -1899,12 +2305,14 @@ private enum ActiveSheet: Identifiable {
             return 1
         case .focus:
             return 2
-        case .priorityManager:
+        case .focusHistory:
             return 3
-        case .habitManager:
+        case .priorityManager:
             return 4
-        case .recap:
+        case .habitManager:
             return 5
+        case .recap:
+            return 6
         }
     }
 }
@@ -1916,9 +2324,14 @@ private struct WeeklyQuest: Identifiable {
     let progress: Int
     let target: Int
     let rewardXP: Int
+    let isClaimed: Bool
 
     var isComplete: Bool {
         progress >= target
+    }
+
+    var canClaim: Bool {
+        isComplete && !isClaimed
     }
 
     var progressRatio: Double {
