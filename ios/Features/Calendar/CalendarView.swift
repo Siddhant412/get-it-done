@@ -224,8 +224,8 @@ private struct HeatmapSection: View {
                 .foregroundStyle(CalendarTheme.ink)
 
             HStack(alignment: .top, spacing: 12) {
-                WeekdayLabels()
-                HeatmapGrid(days: days, onSelect: onSelect)
+                WeekdayLabels(topPadding: HeatmapTimeline.weekdayTopPadding)
+                HeatmapTimeline(days: days, onSelect: onSelect)
             }
 
             HeatmapLegend()
@@ -237,34 +237,145 @@ private struct HeatmapSection: View {
     }
 }
 
-private struct HeatmapGrid: View {
+private struct HeatmapTimeline: View {
     let days: [HeatmapDay]
     let onSelect: (HeatmapDay) -> Void
 
-    private let rows = Array(repeating: GridItem(.fixed(12), spacing: 6), count: 7)
+    static let cellSize: CGFloat = 12
+    static let spacing: CGFloat = 6
+    static let labelHeight: CGFloat = 12
+    static let labelSpacing: CGFloat = 6
+    static let verticalPadding: CGFloat = 4
+
+    static var weekdayTopPadding: CGFloat {
+        labelHeight + labelSpacing + verticalPadding
+    }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            LazyHGrid(rows: rows, spacing: 6) {
-                ForEach(days) { day in
-                    HeatmapCell(day: day)
-                        .onTapGesture {
-                            onSelect(day)
-                        }
-                }
+            VStack(alignment: .leading, spacing: Self.labelSpacing) {
+                MonthLabelsRow(
+                    days: days,
+                    cellSize: Self.cellSize,
+                    spacing: Self.spacing,
+                    height: Self.labelHeight
+                )
+                HeatmapGrid(
+                    days: days,
+                    onSelect: onSelect,
+                    cellSize: Self.cellSize,
+                    spacing: Self.spacing
+                )
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, Self.verticalPadding)
+        }
+    }
+}
+
+private struct MonthLabelsRow: View {
+    let days: [HeatmapDay]
+    let cellSize: CGFloat
+    let spacing: CGFloat
+    let height: CGFloat
+
+    var body: some View {
+        let weekStarts = weekStartDates
+        let markers = monthMarkers(for: weekStarts)
+        let width = totalWidth(for: weekStarts.count)
+
+        ZStack(alignment: .leading) {
+            ForEach(markers) { marker in
+                Text(marker.label)
+                    .font(.custom("Avenir Next", size: 10))
+                    .foregroundStyle(CalendarTheme.inkSoft)
+                    .offset(x: marker.x)
+            }
+        }
+        .frame(width: width, height: height, alignment: .leading)
+    }
+
+    private var weekStartDates: [Date] {
+        stride(from: 0, to: days.count, by: 7).compactMap { index in
+            guard days.indices.contains(index) else { return nil }
+            return days[index].date
+        }
+    }
+
+    private func monthMarkers(for weeks: [Date]) -> [MonthMarker] {
+        let calendar = Calendar.current
+        var markers: [MonthMarker] = []
+        var lastMonth = -1
+
+        for (index, date) in weeks.enumerated() {
+            let month = calendar.component(.month, from: date)
+            if index == 0 || month != lastMonth {
+                let label = MonthLabelsRow.formatter.string(from: date)
+                markers.append(
+                    MonthMarker(
+                        id: index,
+                        label: label,
+                        x: columnOffset(for: index)
+                    )
+                )
+                lastMonth = month
+            }
+        }
+        return markers
+    }
+
+    private func columnOffset(for index: Int) -> CGFloat {
+        CGFloat(index) * (cellSize + spacing)
+    }
+
+    private func totalWidth(for columns: Int) -> CGFloat {
+        guard columns > 0 else { return 0 }
+        return CGFloat(columns) * cellSize + CGFloat(columns - 1) * spacing
+    }
+
+    private static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MMM"
+        return formatter
+    }()
+}
+
+private struct MonthMarker: Identifiable {
+    let id: Int
+    let label: String
+    let x: CGFloat
+}
+
+private struct HeatmapGrid: View {
+    let days: [HeatmapDay]
+    let onSelect: (HeatmapDay) -> Void
+    let cellSize: CGFloat
+    let spacing: CGFloat
+
+    private var rows: [GridItem] {
+        Array(repeating: GridItem(.fixed(cellSize), spacing: spacing), count: 7)
+    }
+
+    var body: some View {
+        LazyHGrid(rows: rows, spacing: spacing) {
+            ForEach(days) { day in
+                HeatmapCell(day: day, size: cellSize)
+                    .onTapGesture {
+                        onSelect(day)
+                    }
+            }
         }
     }
 }
 
 private struct HeatmapCell: View {
     let day: HeatmapDay
+    let size: CGFloat
 
     var body: some View {
         RoundedRectangle(cornerRadius: 3, style: .continuous)
             .fill(CalendarTheme.heatmapColor(for: day.intensity))
-            .frame(width: 12, height: 12)
+            .frame(width: size, height: size)
             .overlay(
                 RoundedRectangle(cornerRadius: 3, style: .continuous)
                     .stroke(CalendarTheme.ink.opacity(day.isToday ? 0.6 : 0), lineWidth: 1)
@@ -293,6 +404,7 @@ private struct HeatmapLegend: View {
 }
 
 private struct WeekdayLabels: View {
+    let topPadding: CGFloat
     private let labels = ["M", "T", "W", "T", "F", "S", "S"]
 
     var body: some View {
@@ -304,6 +416,7 @@ private struct WeekdayLabels: View {
                     .frame(height: 12)
             }
         }
+        .padding(.top, topPadding)
     }
 }
 
