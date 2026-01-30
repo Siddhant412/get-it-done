@@ -6,8 +6,10 @@ import UIKit
 struct CalendarView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \DailyLog.date) private var logs: [DailyLog]
+    @Query(sort: \FocusSession.startDate, order: .reverse) private var focusSessions: [FocusSession]
 
     @State private var selectedDay: HeatmapDay?
+    @State private var showFocusDiary = false
 
     private let weeksToShow = 16
 
@@ -27,6 +29,11 @@ struct CalendarView: View {
                         consistencyScore: consistencyScore
                     )
 
+                    FocusDiaryCard(
+                        days: FocusDiaryData.days(from: focusSessions, count: 14),
+                        onOpen: { showFocusDiary = true }
+                    )
+
                     HeatmapSection(
                         days: heatmapDays,
                         onSelect: { selectedDay = $0 }
@@ -42,6 +49,9 @@ struct CalendarView: View {
         .toolbar(.hidden, for: .navigationBar)
         .sheet(item: $selectedDay) { day in
             DayDetailView(day: day)
+        }
+        .sheet(isPresented: $showFocusDiary) {
+            FocusDiaryView(sessions: focusSessions)
         }
     }
 
@@ -129,6 +139,335 @@ struct CalendarView: View {
     }
 
     
+}
+
+private struct FocusDiaryCard: View {
+    let days: [FocusDiaryDay]
+    let onOpen: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Focus diary")
+                        .font(.custom("Avenir Next", size: 20))
+                        .fontWeight(.semibold)
+                        .foregroundStyle(CalendarTheme.ink)
+                    Text("Hours focused each day")
+                        .font(.custom("Avenir Next", size: 13))
+                        .foregroundStyle(CalendarTheme.inkSoft)
+                }
+                Spacer()
+                Button(action: onOpen) {
+                    Text("View")
+                        .font(.custom("Avenir Next", size: 12))
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(CalendarTheme.heatmapFill)
+                        .clipShape(Capsule())
+                }
+            }
+
+            FocusDiaryChart(
+                days: days,
+                selectedDate: nil,
+                onSelect: nil
+            )
+            .frame(height: 72)
+        }
+        .padding(16)
+        .background(CalendarTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: CalendarTheme.shadow, radius: 8, x: 0, y: 5)
+    }
+}
+
+private struct FocusDiaryView: View {
+    @Environment(\.dismiss) private var dismiss
+    let sessions: [FocusSession]
+
+    @State private var selectedDate = Date().startOfDay
+
+    private var days: [FocusDiaryDay] {
+        FocusDiaryData.days(from: sessions, count: 14)
+    }
+
+    private var selectedSessions: [FocusSession] {
+        FocusDiaryData.sessions(on: selectedDate, from: sessions)
+            .sorted { $0.startDate < $1.startDate }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    FocusDiaryHeader()
+
+                    FocusDiaryChart(
+                        days: days,
+                        selectedDate: selectedDate,
+                        onSelect: { date in
+                        selectedDate = date
+                        }
+                    )
+                    .frame(height: 140)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
+
+                    FocusDaySummary(date: selectedDate, minutes: totalMinutes)
+
+                    FocusSessionList(sessions: selectedSessions)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
+            }
+            .navigationTitle("Focus diary")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                if let last = days.last {
+                    selectedDate = last.date
+                }
+            }
+        }
+    }
+
+    private var totalMinutes: Int {
+        selectedSessions.reduce(0) { $0 + $1.durationMinutes }
+    }
+}
+
+private struct FocusDiaryHeader: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Hours focused")
+                .font(.custom("Avenir Next", size: 22))
+                .fontWeight(.bold)
+                .foregroundStyle(CalendarTheme.ink)
+            Text("Tap a day to see the sessions and what you worked on.")
+                .font(.custom("Avenir Next", size: 13))
+                .foregroundStyle(CalendarTheme.inkSoft)
+        }
+        .padding(.top, 4)
+    }
+}
+
+private struct FocusDiaryChart: View {
+    let days: [FocusDiaryDay]
+    let selectedDate: Date?
+    let onSelect: ((Date) -> Void)?
+
+    let barWidth: CGFloat = 18
+    let labelWidth: CGFloat = 24
+    let maxBarHeight: CGFloat = 80
+    let labelProvider: (Date) -> String = FocusDiaryData.shortWeekday
+
+    private var maxMinutes: Int {
+        max(days.map(\.minutes).max() ?? 0, 10)
+    }
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .bottom, spacing: 6) {
+                ForEach(days) { day in
+                    VStack(spacing: 6) {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(barColor(for: day))
+                            .frame(width: barWidth, height: barHeight(for: day))
+                            .onTapGesture {
+                                onSelect?(day.date)
+                            }
+                        Text(labelProvider(day.date))
+                            .font(.custom("Avenir Next", size: 10))
+                            .foregroundStyle(CalendarTheme.inkSoft)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .frame(width: labelWidth)
+                    }
+                }
+            }
+            .frame(width: totalWidth, alignment: .leading)
+        }
+    }
+
+    private func barHeight(for day: FocusDiaryDay) -> CGFloat {
+        let ratio = Double(day.minutes) / Double(maxMinutes)
+        return max(6, maxBarHeight * ratio)
+    }
+
+    private func barColor(for day: FocusDiaryDay) -> Color {
+        if let selectedDate, Calendar.current.isDate(day.date, inSameDayAs: selectedDate) {
+            return CalendarTheme.heatmapFill
+        }
+        return day.minutes == 0 ? CalendarTheme.heatmapBase.opacity(0.4) : CalendarTheme.heatmapFill.opacity(0.6)
+    }
+
+    private var totalWidth: CGFloat {
+        guard !days.isEmpty else { return 0 }
+        let spacing: CGFloat = 6
+        return CGFloat(days.count) * labelWidth + CGFloat(days.count - 1) * spacing
+    }
+}
+
+private struct FocusDaySummary: View {
+    let date: Date
+    let minutes: Int
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(CalendarDateFormatter.full.string(from: date))
+                    .font(.custom("Avenir Next", size: 14))
+                    .fontWeight(.semibold)
+                    .foregroundStyle(CalendarTheme.ink)
+                Text("Total focus time")
+                    .font(.custom("Avenir Next", size: 12))
+                    .foregroundStyle(CalendarTheme.inkSoft)
+            }
+            Spacer()
+            Text(FocusDiaryData.durationLabel(minutes))
+                .font(.custom("Avenir Next", size: 16))
+                .fontWeight(.bold)
+                .foregroundStyle(CalendarTheme.ink)
+        }
+        .padding(12)
+        .background(CalendarTheme.pill)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+private struct FocusSessionList: View {
+    let sessions: [FocusSession]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Sessions")
+                .font(.custom("Avenir Next", size: 16))
+                .fontWeight(.semibold)
+                .foregroundStyle(CalendarTheme.ink)
+
+            if sessions.isEmpty {
+                Text("No focus sessions for this day.")
+                    .font(.custom("Avenir Next", size: 13))
+                    .foregroundStyle(CalendarTheme.inkSoft)
+            } else {
+                ForEach(sessions) { session in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(session.task?.title ?? "Unassigned focus")
+                                .font(.custom("Avenir Next", size: 14))
+                                .fontWeight(.semibold)
+                                .foregroundStyle(CalendarTheme.ink)
+                            Spacer()
+                            Text(FocusDiaryData.timeLabel(session.startDate))
+                                .font(.custom("Avenir Next", size: 12))
+                                .foregroundStyle(CalendarTheme.inkSoft)
+                        }
+
+                        Text("\(FocusDiaryData.durationLabel(session.durationMinutes)) • \(FocusDiaryData.shortDateTime(session.startDate))")
+                            .font(.custom("Avenir Next", size: 12))
+                            .foregroundStyle(CalendarTheme.inkSoft)
+
+                        if !session.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(session.note)
+                                .font(.custom("Avenir Next", size: 12))
+                                .foregroundStyle(CalendarTheme.ink)
+                        }
+                    }
+                    .padding(12)
+                    .background(CalendarTheme.card)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .shadow(color: CalendarTheme.shadow, radius: 4, x: 0, y: 2)
+                }
+            }
+        }
+    }
+}
+
+private struct FocusDiaryDay: Identifiable {
+    let date: Date
+    let minutes: Int
+
+    var id: Date { date }
+}
+
+private enum FocusDiaryData {
+    static func days(from sessions: [FocusSession], count: Int) -> [FocusDiaryDay] {
+        guard count > 0 else { return [] }
+        let calendar = Calendar.current
+        let today = Date().startOfDay
+        let startDate = calendar.date(byAdding: .day, value: -(count - 1), to: today) ?? today
+        let grouped = Dictionary(grouping: sessions) { $0.startDate.startOfDay }
+
+        return (0..<count).compactMap { offset in
+            guard let date = calendar.date(byAdding: .day, value: offset, to: startDate) else { return nil }
+            let minutes = grouped[date.startOfDay]?.reduce(0) { $0 + $1.durationMinutes } ?? 0
+            return FocusDiaryDay(date: date, minutes: minutes)
+        }
+    }
+
+    static func sessions(on date: Date, from sessions: [FocusSession]) -> [FocusSession] {
+        sessions.filter { Calendar.current.isDate($0.startDate, inSameDayAs: date) }
+    }
+
+    static func durationLabel(_ minutes: Int) -> String {
+        if minutes >= 60 {
+            let hours = Double(minutes) / 60.0
+            return String(format: "%.1fh", hours)
+        }
+        return "\(minutes)m"
+    }
+
+    static func shortWeekday(from date: Date) -> String {
+        weekdayFormatter.string(from: date)
+    }
+
+    static func compactWeekday(from date: Date) -> String {
+        compactWeekdayFormatter.string(from: date)
+    }
+
+    static func timeLabel(_ date: Date) -> String {
+        timeFormatter.string(from: date)
+    }
+
+    static func shortDateTime(_ date: Date) -> String {
+        shortDateTimeFormatter.string(from: date)
+    }
+
+    private static let weekdayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EE"
+        return formatter
+    }()
+
+    private static let compactWeekdayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEEEEE"
+        return formatter
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "h:mm a"
+        return formatter
+    }()
+
+    private static let shortDateTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
 }
 
 private struct CalendarBackground: View {

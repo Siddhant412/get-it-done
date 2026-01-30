@@ -40,6 +40,7 @@
 		0257C2B22F268E3A005B9C83 /* QuestClaim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C2B02F268E3A005B9C83 /* QuestClaim.swift */; };
 		0257C2B32F268E3A005B9C83 /* XPBonus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C2B12F268E3A005B9C83 /* XPBonus.swift */; };
 		0257C2B42F268E3A005B9C83 /* FocusSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C2AF2F268E3A005B9C83 /* FocusSession.swift */; };
+		0257C2B72F2C437B005B9C83 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0257C2B62F2C437B005B9C83 /* OnboardingView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -135,6 +136,7 @@
 		0257C2AF2F268E3A005B9C83 /* FocusSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FocusSession.swift; path = ../Data/Models/FocusSession.swift; sourceTree = SOURCE_ROOT; };
 		0257C2B02F268E3A005B9C83 /* QuestClaim.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QuestClaim.swift; path = ../Data/Models/QuestClaim.swift; sourceTree = SOURCE_ROOT; };
 		0257C2B12F268E3A005B9C83 /* XPBonus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = XPBonus.swift; path = ../Data/Models/XPBonus.swift; sourceTree = SOURCE_ROOT; };
+		0257C2B62F2C437B005B9C83 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OnboardingView.swift; path = ../Features/Onboarding/OnboardingView.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -214,6 +216,7 @@
 		0257C1ED2F1D5C28005B9C83 = {
 			isa = PBXGroup;
 			children = (
+				0257C2B62F2C437B005B9C83 /* OnboardingView.swift */,
 				0257C2AE2F244194005B9C83 /* GetItDoneWidgetsExtension.entitlements */,
 				0257C28B2F243FBC005B9C83 /* GetItDoneWidgets.swift */,
 				0257C2892F243F17005B9C83 /* WidgetDataStore.swift */,
@@ -642,6 +645,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0257C2B72F2C437B005B9C83 /* OnboardingView.swift in Sources */,
 				0257C2822F242DCA005B9C83 /* AppTheme.swift in Sources */,
 				0257C27E2F241B61005B9C83 /* Date+StartOfDay.swift in Sources */,
 				0257C2862F242E11005B9C83 /* SampleDataSeeder.swift in Sources */,

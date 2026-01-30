@@ -147,7 +147,7 @@ struct TodayView: View {
                     progress: todayProgress
                 )
             case .focusHistory:
-                FocusHistoryView(sessions: focusSessions)
+                FocusHistoryView(sessions: focusSessions, tasks: tasks)
             }
         }
         .sheet(item: $selectedPriority) { item in
@@ -194,7 +194,12 @@ struct TodayView: View {
     }
 
     private var currentFocusMinutes: Int {
-        currentStats?.focusMinutes ?? 0
+        let start = Date().startOfDay
+        let end = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? start
+        return focusSessions.reduce(0) { total, session in
+            guard session.startDate >= start && session.startDate < end else { return total }
+            return total + session.durationMinutes
+        }
     }
 
     private var todayXP: Int {
@@ -906,14 +911,19 @@ private struct HabitCard: View {
                 .clipShape(Capsule())
             }
             .buttonStyle(.plain)
+            .disabled(!isScheduledToday)
             .contextMenu {
-                Button("Tiny check-in") {
-                    updateProgress(to: 0.35)
-                }
-                if item.progress > 0 {
-                    Button("Reset today") {
-                        updateProgress(to: 0)
+                if isScheduledToday {
+                    Button("Tiny check-in") {
+                        updateProgress(to: 0.35)
                     }
+                    if item.progress > 0 {
+                        Button("Reset today") {
+                            updateProgress(to: 0)
+                        }
+                    }
+                } else {
+                    Button("Not scheduled today") { }
                 }
             }
         }
@@ -922,9 +932,13 @@ private struct HabitCard: View {
         .background(TodayTheme.cardSurface)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .shadow(color: TodayTheme.shadow, radius: 8, x: 0, y: 5)
+        .opacity(isScheduledToday ? 1 : 0.65)
     }
 
     private var statusLabel: String {
+        if !isScheduledToday {
+            return "Rest day"
+        }
         if item.progress >= 1 {
             return "Done"
         }
@@ -935,6 +949,9 @@ private struct HabitCard: View {
     }
 
     private var statusIcon: String {
+        if !isScheduledToday {
+            return "moon.zzz"
+        }
         if item.progress >= 1 {
             return "checkmark.circle.fill"
         }
@@ -945,6 +962,9 @@ private struct HabitCard: View {
     }
 
     private var statusBackground: Color {
+        if !isScheduledToday {
+            return TodayTheme.badgeStrong
+        }
         if item.progress >= 1 {
             return TodayTheme.accent
         }
@@ -962,6 +982,7 @@ private struct HabitCard: View {
     }
 
     private func toggleFullCheckIn() {
+        guard isScheduledToday else { return }
         let target: Double = item.progress >= 1 ? 0 : 1
         updateProgress(to: target)
     }
@@ -972,6 +993,16 @@ private struct HabitCard: View {
         }
         AppHaptics.tap()
         onProgressChange()
+    }
+
+    private var isScheduledToday: Bool {
+        item.scheduleDays.isEmpty || item.scheduleDays.contains(todayScheduleDay)
+    }
+
+    private var todayScheduleDay: Int {
+        let weekday = Calendar.current.component(.weekday, from: Date())
+        let mapping = [7, 1, 2, 3, 4, 5, 6]
+        return mapping[weekday - 1]
     }
 }
 
@@ -1310,7 +1341,9 @@ private struct FocusSessionRow: View {
 
 private struct FocusHistoryView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     let sessions: [FocusSession]
+    let tasks: [TaskItem]
 
     var body: some View {
         NavigationStack {
@@ -1321,18 +1354,21 @@ private struct FocusHistoryView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(sessions) { session in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(session.task?.title ?? "Unassigned focus")
-                                .font(.custom("Avenir Next", size: 16))
-                            Text(TodayView.dateTimeFormatter.string(from: session.startDate))
-                                .font(.custom("Avenir Next", size: 12))
-                                .foregroundStyle(.secondary)
-                            Text("\(session.durationMinutes) minutes")
-                                .font(.custom("Avenir Next", size: 12))
-                                .foregroundStyle(.secondary)
+                        NavigationLink(destination: FocusSessionDetailView(session: session, tasks: tasks)) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(session.task?.title ?? "Unassigned focus")
+                                    .font(.custom("Avenir Next", size: 16))
+                                Text(TodayView.dateTimeFormatter.string(from: session.startDate))
+                                    .font(.custom("Avenir Next", size: 12))
+                                    .foregroundStyle(.secondary)
+                                Text("\(session.durationMinutes) minutes")
+                                    .font(.custom("Avenir Next", size: 12))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 4)
                         }
-                        .padding(.vertical, 4)
                     }
+                    .onDelete(perform: delete)
                 }
             }
             .navigationTitle("Focus history")
@@ -1341,6 +1377,72 @@ private struct FocusHistoryView: View {
                     Button("Done") {
                         dismiss()
                     }
+                }
+            }
+        }
+    }
+
+    private func delete(at offsets: IndexSet) {
+        for index in offsets {
+            modelContext.delete(sessions[index])
+        }
+    }
+}
+
+private struct FocusSessionDetailView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Bindable var session: FocusSession
+    let tasks: [TaskItem]
+
+    var body: some View {
+        Form {
+            Section("Details") {
+                DatePicker("Start time", selection: $session.startDate, displayedComponents: [.date, .hourAndMinute])
+                Stepper("Duration: \(session.durationMinutes) min", value: $session.durationMinutes, in: 5...240, step: 5)
+            }
+
+            Section("Task") {
+                Menu {
+                    Button("No task") {
+                        session.task = nil
+                    }
+                    if !tasks.isEmpty {
+                        Divider()
+                    }
+                    ForEach(tasks) { task in
+                        Button(task.title) {
+                            session.task = task
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Text("Attach task")
+                        Spacer()
+                        Text(session.task?.title ?? "None")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Section("Notes") {
+                TextEditor(text: $session.note)
+                    .frame(minHeight: 120)
+            }
+
+            Section {
+                Button("Delete session", role: .destructive) {
+                    modelContext.delete(session)
+                    dismiss()
+                }
+            }
+        }
+        .navigationTitle("Focus session")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Done") {
+                    dismiss()
                 }
             }
         }
@@ -1646,6 +1748,7 @@ private struct PriorityManagerView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \DailyPriority.sortOrder) private var items: [DailyPriority]
     @Query(sort: \Goal.sortOrder) private var goals: [Goal]
+    @State private var showAdd = false
 
     var body: some View {
         NavigationStack {
@@ -1663,9 +1766,27 @@ private struct PriorityManagerView: View {
                         dismiss()
                     }
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button("Add") {
+                        showAdd = true
+                    }
                     EditButton()
                 }
+            }
+        }
+        .sheet(isPresented: $showAdd) {
+            AddPrioritySheet(goals: goals) { title, detail, isSmallWin, goal in
+                let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedTitle.isEmpty else { return }
+                let nextOrder = (items.map(\.sortOrder).max() ?? -1) + 1
+                let item = DailyPriority(
+                    title: trimmedTitle,
+                    detail: detail.trimmingCharacters(in: .whitespacesAndNewlines),
+                    isSmallWin: isSmallWin,
+                    sortOrder: nextOrder,
+                    goal: goal
+                )
+                modelContext.insert(item)
             }
         }
     }
@@ -1722,6 +1843,7 @@ private struct HabitManagerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Habit.sortOrder) private var items: [Habit]
+    @State private var showAdd = false
 
     var body: some View {
         NavigationStack {
@@ -1739,9 +1861,26 @@ private struct HabitManagerView: View {
                         dismiss()
                     }
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button("Add") {
+                        showAdd = true
+                    }
                     EditButton()
                 }
+            }
+        }
+        .sheet(isPresented: $showAdd) {
+            AddHabitSheet { title, streak in
+                let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedTitle.isEmpty else { return }
+                let nextOrder = (items.map(\.sortOrder).max() ?? -1) + 1
+                let item = Habit(
+                    title: trimmedTitle,
+                    streak: max(0, min(streak, 365)),
+                    progress: 0,
+                    sortOrder: nextOrder
+                )
+                modelContext.insert(item)
             }
         }
     }
@@ -1780,6 +1919,81 @@ private struct HabitManagerRow: View {
                 .font(.custom("Avenir Next", size: 12))
         }
         .padding(.vertical, 6)
+    }
+}
+
+private struct AddPrioritySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var title = ""
+    @State private var detail = ""
+    @State private var isSmallWin = true
+    @State private var selectedGoal: Goal?
+
+    let goals: [Goal]
+    let onAdd: (String, String, Bool, Goal?) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Priority title", text: $title)
+                    TextField("Detail (optional)", text: $detail)
+                    Toggle("Tiny win", isOn: $isSmallWin)
+                    if !goals.isEmpty {
+                        GoalSelectionMenu(
+                            goals: goals,
+                            selectedGoal: selectedGoal,
+                            onSelect: { selectedGoal = $0 }
+                        )
+                    }
+                }
+            }
+            .navigationTitle("Add priority")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Add") {
+                        onAdd(title, detail, isSmallWin, selectedGoal)
+                        dismiss()
+                    }
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+}
+
+private struct AddHabitSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var title = ""
+    @State private var streak = 1
+
+    let onAdd: (String, Int) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Habit title", text: $title)
+                    Stepper("Streak start: \(streak) days", value: $streak, in: 0...365)
+                }
+            }
+            .navigationTitle("Add habit")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Add") {
+                        onAdd(title, streak)
+                        dismiss()
+                    }
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
     }
 }
 
@@ -1866,6 +2080,7 @@ private struct FocusTimerView: View {
     @State private var selectedMinutes = 25
     @State private var remainingSeconds = 25 * 60
     @State private var isRunning = false
+    @State private var didLogSession = false
 
     let tasks: [TaskItem]
     let onComplete: (Int, TaskItem?) -> Void
@@ -1935,12 +2150,14 @@ private struct FocusTimerView: View {
             .onChange(of: selectedMinutes) { newValue in
                 if !isRunning {
                     remainingSeconds = newValue * 60
+                    didLogSession = false
                 }
             }
             .navigationTitle("Focus")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
+                        logSessionIfNeeded()
                         dismiss()
                     }
                 }
@@ -1966,6 +2183,7 @@ private struct FocusTimerView: View {
         if remainingSeconds == 0 {
             isRunning = false
             onComplete(selectedMinutes, selectedTask)
+            didLogSession = true
             AppHaptics.success()
         }
     }
@@ -1973,6 +2191,17 @@ private struct FocusTimerView: View {
     private func resetTimer() {
         isRunning = false
         remainingSeconds = selectedMinutes * 60
+        didLogSession = false
+    }
+
+    private func logSessionIfNeeded() {
+        guard !didLogSession else { return }
+        let totalSeconds = selectedMinutes * 60
+        let elapsedSeconds = max(0, totalSeconds - remainingSeconds)
+        let elapsedMinutes = elapsedSeconds / 60
+        guard elapsedMinutes > 0 else { return }
+        onComplete(elapsedMinutes, selectedTask)
+        didLogSession = true
     }
 }
 

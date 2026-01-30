@@ -3,11 +3,18 @@ import SwiftData
 
 struct AppRootView: View {
     @Environment(\.modelContext) private var modelContext
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
     var body: some View {
-        AppTabView()
-            .task {
-                SampleDataSeeder.seedIfNeeded(in: modelContext)
+        Group {
+            if hasCompletedOnboarding {
+                AppTabView()
+            } else {
+                OnboardingView()
             }
+        }
+        .task {
+            SampleDataSeeder.seedIfNeeded(in: modelContext)
+        }
     }
 }
