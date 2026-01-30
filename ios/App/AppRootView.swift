@@ -13,8 +13,5 @@ struct AppRootView: View {
                 OnboardingView()
             }
         }
-        .task {
-            SampleDataSeeder.seedIfNeeded(in: modelContext)
-        }
     }
 }
